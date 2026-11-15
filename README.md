@@ -202,19 +202,41 @@ waiting on a dead socket for up to 60 s, then sat out a reconnect backoff: chats
 spun, sent messages vanished, "New chat" did nothing, and actions failed with "Connection lost
 while action was in flight".
 
-- `src/lib/connection.ts` reconnects on NetInfo changes and on foregrounding, restarts a socket
-  that's stalled (a mutation in flight for 10 s, or a screen waiting 8 s on a query), shortens the
-  dead-socket timer to 30 s, and publishes `ok` / `reconnecting` / `offline`. It uses the client's
-  WebSocket manager, which isn't public API; every access is guarded.
+- `src/lib/connection.ts` skips the reconnect backoff when the network comes back or the app
+  returns to the foreground, and publishes `ok` / `reconnecting` / `offline`. It replaces a
+  socket that still claims to be open in two cases only: right after a network change, and when
+  a mutation has had no answer for 10 s on a socket that has been open, with the app in front,
+  for that long (`connectionRules.ts`, unit tested). It never does so while an action is in
+  flight, never on foregrounding, and a slow spinner never resets anything: replacing the socket
+  is what fails actions with "Connection lost". The client's own 60 s dead-socket timer is left
+  alone. It uses the client's WebSocket manager, which isn't public API; every access is guarded.
 - `ConnectionPill` (under the navigation bar) and `Loading` (a spinner that says why it's still
   there) show that state. Use `Loading` wherever a screen waits on the server.
 - `messages.send` is optimistic: the bubble appears at once with "Sending…", and the text goes
   back in the field if the send fails.
-- Errors shown to people go through `friendlyError` (`src/lib/errors.ts`): no `[CONVEX A(...)]`,
-  no "Called by client". Loads that fail show `LoadError` in the page with a retry, not an alert
-  (an alert could arrive minutes later over a different screen).
-- `useReadAction` retries read-only actions and gives up with a timeout; `useTimedAction` puts a
-  deadline on actions that change things.
+- Errors shown to people go through `friendlyError` (`src/lib/errors.ts`), the only place error
+  text is built: no `[CONVEX A(...)]`, no "Called by client". Only a dropped socket or the
+  phone's own network failure reads as a connection problem; an error thrown by a server
+  function keeps its own message. Loads that fail show `LoadError` in the page with a retry, not
+  an alert (an alert could arrive minutes later over a different screen).
+- `useReadAction` re-runs a read-only action whose socket dropped mid-call. It does not retry on
+  its own 30 s deadline (the first call is still running on the server); the screen offers
+  "Try again". `useTimedAction` puts a deadline on actions that change things.
+- `useSyncedSetting` backs the settings screens: they show the server's value, save one edit at
+  a time with the latest edit winning, and go back to the saved value if a save fails.
+
+## Approvals and browser runs
+
+Same rules as the web app (`web/apps/app/components/chat/action-row.tsx`):
+
+- `actionState` (`src/lib/actionState.ts`): once an ask has become a browser run, the run decides
+  what the card shows (working, then done or failed). The backend also keeps the approval
+  `running` until the run ends.
+- "Always allow" appears on asks that carry a `scope` (reading one site, or one app action;
+  never anything high-risk). Allowances are listed under Connections with "Ask again".
+- While a run is going and has a live view, the card offers "Watch live" (in-app browser).
+- Text from the model and from web pages is rendered as Markdown; only http(s) links are
+  tappable, so it can never open `tel:`, `sms:` or another app.
 
 ## Layout
 
