@@ -40,7 +40,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
   const [open, setOpen] = useState(false);
   const meta = LABELS[tool.toolName] ?? { icon: "wrench.and.screwdriver" as SFSymbol, running: tool.toolName, done: tool.toolName };
   const res = asRecord(tool.result);
-  const connectUrl = tool.toolName === "connect_app" && typeof res?.connectUrl === "string" ? res.connectUrl : null;
+  const connectUrl = tool.toolName === "connect_app" && typeof res?.connectUrl === "string" && /^https:\/\//i.test(res.connectUrl) ? res.connectUrl : null;
   const d = detail(tool);
 
   return (
@@ -70,7 +70,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
           icon="checkmark"
           size="sm"
           style={{ marginTop: 8 }}
-          onPress={() => void WebBrowser.openAuthSessionAsync(connectUrl, "wali://connections")}
+          onPress={() => void WebBrowser.openAuthSessionAsync(connectUrl, "wali://connections").catch(() => {})}
         />
       ) : null}
     </View>

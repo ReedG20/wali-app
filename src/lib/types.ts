@@ -15,6 +15,10 @@ export type Approval = {
   summary: string
   toolSlug?: string
   args: unknown
+  /** read: changes nothing. low: a private, reversible change. high: reaches people, money, deletes. */
+  risk?: "read" | "low" | "high"
+  /** Present when this can be allowed for good ("Always allow"); never for high-risk actions. */
+  scope?: { kind: "browser" | "app"; key: string; label: string }
   status: "pending" | "approved" | "declined" | "running" | "done" | "failed"
   error?: string
   createdAt: number
@@ -23,6 +27,10 @@ export type Approval = {
 export type BrowserTask = {
   _id: Id<"browserTasks">
   task: string
+  /** One plain sentence for the user; `task` is the brief the browser agent was given. */
+  summary?: string
+  /** Live view of the run's browser: set once it's up, cleared when the run ends. */
+  liveUrl?: string
   status: "starting" | "running" | "completed" | "failed" | "cancelled"
   result?: string
   error?: string
@@ -75,3 +83,6 @@ export type GateEvent = {
   costUsd?: number
   createdAt: number
 }
+
+/** An "Always allow" the user granted on an approval (users.me.alwaysAllow). */
+export type Grant = { kind: "browser" | "app"; key: string; label: string; createdAt: number }

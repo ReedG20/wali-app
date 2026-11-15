@@ -119,6 +119,7 @@ export type PublicApiType = {
       "mutation",
       "public",
       {
+        always?: boolean;
         decision: "approve" | "decline";
         editedArgs?: any;
         id: Id<"approvals">;
@@ -199,6 +200,12 @@ export type PublicApiType = {
       "mutation",
       "public",
       { mode: "ask" | "balanced" | "auto" },
+      any
+    >;
+    removeAlwaysAllow: FunctionReference<
+      "mutation",
+      "public",
+      { key: string; kind: "browser" | "app" },
       any
     >;
     updateNotify: FunctionReference<
