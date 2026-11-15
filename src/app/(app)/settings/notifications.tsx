@@ -3,11 +3,12 @@ import { background, font as swiftFont, foregroundStyle, scrollContentBackground
 import { useMutation, useQuery } from "convex/react";
 import * as Device from "expo-device";
 import { Stack, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Alert, Linking } from "react-native";
 import { api } from "../../../lib/convex-api";
 import { friendlyError } from "../../../lib/errors";
 import { useTimedAction } from "../../../lib/useReadAction";
+import { useSyncedSetting } from "../../../lib/useSyncedSetting";
 import { pushPermission, requestPushToken, type PushPermission } from "../../../lib/notifications";
 import { NOTIFY_COPY as C, type Notify } from "../../../lib/settingsCopy";
 import { ago } from "../../../lib/time";
@@ -30,18 +31,9 @@ export default function NotificationSettings() {
   const update = useMutation(api.users.updateNotify);
   const register = useMutation(api.push.register);
   const sendTest = useTimedAction(api.push.sendTest, 20_000);
-  const [n, setN] = useState<Notify | null>(null);
+  const [n, setN] = useSyncedSetting(me?.notify, update);
   const [perm, setPerm] = useState<PushPermission | null>(null);
   const [testing, setTesting] = useState(false);
-
-  const saving = useRef(0);
-  const server = me?.notify;
-  const serverRef = useRef(server);
-  serverRef.current = server;
-  // Follow the server (see proactive.tsx): never keep showing a switch position that didn't save.
-  useEffect(() => {
-    if (server && saving.current === 0) setN(server);
-  }, [server]);
 
   // Coming back from iOS Settings may have changed the answer.
   useFocusEffect(
@@ -50,20 +42,7 @@ export default function NotificationSettings() {
     }, []),
   );
 
-  function save(patch: Partial<Notify>) {
-    if (!n) return;
-    const next = { ...n, ...patch };
-    setN(next);
-    saving.current++;
-    update(next)
-      .catch((e) => {
-        Alert.alert("Couldn't save", friendlyError(e, "Try again."));
-        if (saving.current === 1 && serverRef.current) setN(serverRef.current);
-      })
-      .finally(() => {
-        saving.current--;
-      });
-  }
+  const save = (patch: Partial<Notify>) => n && setN({ ...n, ...patch });
 
   async function turnOn() {
     if (perm === "denied") return void Linking.openSettings();

@@ -3,11 +3,9 @@ import { background, font as swiftFont, foregroundStyle, multilineTextAlignment,
 import { useMutation, useQuery } from "convex/react";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
 import { api } from "../../../lib/convex-api";
-import { friendlyError } from "../../../lib/errors";
 import { PERMISSION_MODES, PERMISSIONS_NOTE, type PermissionMode } from "../../../lib/permissions";
+import { useSyncedSetting } from "../../../lib/useSyncedSetting";
 import { color, font } from "../../../theme";
 import { Loading } from "../../../ui";
 
@@ -15,30 +13,12 @@ import { Loading } from "../../../ui";
 export default function PermissionsSettings() {
   const me = useQuery(api.users.me) as { permissions?: PermissionMode } | null | undefined;
   const update = useMutation(api.users.updatePermissions);
-  const [mode, setMode] = useState<PermissionMode | null>(null);
-
-  const saving = useRef(0);
-  const server = me ? (me.permissions ?? "balanced") : null;
-  const serverRef = useRef(server);
-  serverRef.current = server;
-  // Follow the server (see proactive.tsx): the checkmark must mean "this is what wali uses".
-  useEffect(() => {
-    if (server && saving.current === 0) setMode(server);
-  }, [server]);
+  const [mode, setMode] = useSyncedSetting<PermissionMode>(me ? (me.permissions ?? "balanced") : null, (next) => update({ mode: next }));
 
   function choose(next: PermissionMode) {
     if (next === mode) return;
-    setMode(next);
     void Haptics.selectionAsync();
-    saving.current++;
-    update({ mode: next })
-      .catch((e) => {
-        Alert.alert("Couldn't save", friendlyError(e, "Try again."));
-        if (saving.current === 1 && serverRef.current) setMode(serverRef.current);
-      })
-      .finally(() => {
-        saving.current--;
-      });
+    setMode(next);
   }
 
   const title = [swiftFont({ family: font.medium, size: 16 }), foregroundStyle(color.ink)];
