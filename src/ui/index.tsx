@@ -15,7 +15,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { nudgeConnection, useConnectionStatus } from "../lib/connection";
+import { reconnectNow, useConnectionStatus } from "../lib/connection";
 import { color, display, font, radius, softShadow, type } from "../theme";
 
 export function Icon({ name, size = 18, tint = color.ink2 }: { name: SFSymbol; size?: number; tint?: string }) {
@@ -176,15 +176,16 @@ export function Spinner({ tint = color.ink3 }: { tint?: string }) {
 
 /**
  * A spinner that explains itself. After a few seconds it says why it's still there (offline,
- * reconnecting, or just slow), and after a few more it makes sure the app isn't waiting on a dead
- * connection. Use it wherever a screen waits on the server.
+ * reconnecting, or just slow). If the client is waiting out a reconnect backoff it is told to
+ * connect now; a connection that's open is left alone, however slow the answer is. Use it
+ * wherever a screen waits on the server.
  */
 export function Loading({ fill = true, style }: { fill?: boolean; style?: StyleProp<ViewStyle> }) {
   const status = useConnectionStatus();
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     const t1 = setTimeout(() => setSlow(true), 4000);
-    const t2 = setTimeout(nudgeConnection, 8000);
+    const t2 = setTimeout(reconnectNow, 4000);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);

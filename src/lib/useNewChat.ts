@@ -6,52 +6,63 @@ import { Alert } from "react-native";
 import { reconnectNow } from "./connection";
 import { api } from "./convex-api";
 import { friendlyError, isTimeout, withTimeout } from "./errors";
+import { singleton } from "./runtime";
 
-/** One "new chat" at a time across every button that offers it. */
-let creating = false;
-/** The create is queued behind a dead connection and we've already said so once. */
-let stalled = false;
-
-const STALLED_TITLE = "Still connecting";
-const STALLED_BODY = "wali can't reach the server right now. Your new chat will appear in Chats as soon as it reconnects.";
-
-/** How long to wait for the server before telling the user instead of looking dead. */
+/** How long a tap waits for the server before saying so instead of looking dead. */
 const WAIT_MS = 8000;
+/** Don't stack the "Still connecting" alert when several taps time out together. */
+const STALLED_ALERT_GAP_MS = 4000;
+
+type Slot = {
+  /** The create that's on its way, shared by every New chat button. */
+  pending: Promise<string> | null;
+  /** The create whose outcome (opening the chat, or its error) has already been shown. */
+  handled: Promise<string> | null;
+  stalledAlertAt: number;
+};
+/** Survives Fast Refresh (runtime.ts). */
+const slot = () => singleton<Slot>("newChat", () => ({ pending: null, handled: null, stalledAlertAt: 0 }));
 
 /**
  * Starts a chat and opens it. The server makes the thread, so with no connection the tap used to
- * do nothing at all (no chat, no spinner, no error) and every extra tap queued another empty chat
- * for later. Now: repeat taps are ignored while one is on its way, and after a few seconds
- * without an answer we say so. The queued create still lands once the socket is back; the chat
- * then shows up in the list rather than opening unprompted.
+ * do nothing at all (no chat, no spinner, no error).
+ *
+ * Every tap waits on the same create, so a second tap never sends a second one and never finds a
+ * dead button. Whichever tap sees the create finish opens the chat, once: a double tap doesn't
+ * push the same chat twice. If the server hasn't answered within 8 s the tap says so; the create
+ * stays queued in the Convex client and lands when the socket is back, and a later tap opens it.
  */
 export function useNewChat() {
   const create = useMutation(api.threads.create);
   return useCallback(async () => {
-    if (creating) {
-      // Never a dead button: a tap while the first one is still queued gets the same explanation.
-      if (stalled) Alert.alert(STALLED_TITLE, STALLED_BODY);
-      return;
-    }
-    creating = true;
     void Haptics.selectionAsync();
-    const pending = create({}) as Promise<string>;
+    const st = slot();
+    if (!st.pending) {
+      const p = (create({}) as Promise<string>).finally(() => {
+        if (st.pending === p) st.pending = null;
+      });
+      // Taps time out and move on; the create itself must never be an unhandled rejection.
+      p.catch(() => {});
+      st.pending = p;
+    }
+    const mine = st.pending;
     try {
-      const id = await withTimeout(pending, WAIT_MS);
+      const id = await withTimeout(mine, WAIT_MS);
+      if (st.handled === mine) return;
+      st.handled = mine;
       router.push({ pathname: "/(app)/chats/[id]", params: { id } });
     } catch (e) {
       if (isTimeout(e)) {
         reconnectNow();
-        stalled = true;
-        Alert.alert(STALLED_TITLE, STALLED_BODY);
-        // Keep ignoring taps until the queued create settles, so they don't pile up.
-        await pending.catch(() => {});
+        const now = Date.now();
+        if (now - st.stalledAlertAt < STALLED_ALERT_GAP_MS) return;
+        st.stalledAlertAt = now;
+        Alert.alert("Still connecting", "wali can't reach the server right now. Your new chat will be in Chats as soon as it reconnects.");
       } else {
+        if (st.handled === mine) return;
+        st.handled = mine;
         Alert.alert("Couldn't start a chat", friendlyError(e, "Try again."));
       }
-    } finally {
-      creating = false;
-      stalled = false;
     }
   }, [create]);
 }

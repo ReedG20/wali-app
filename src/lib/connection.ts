@@ -4,15 +4,19 @@
 // message vanished, "New chat" did nothing and actions failed with "Connection lost while action
 // was in flight". The Convex client only learns about network changes from the browser's
 // `window "online"` event, which React Native doesn't have (see convex's web_socket_manager.ts:
-// "React Native has window but not addEventListener"). So after the phone moved between Wi-Fi and
-// cellular, or came back from the background, the client kept waiting on a dead socket until its
-// 60 s server-inactivity timer fired, and then sat out a reconnect backoff of up to 16 s.
+// "React Native has window but not addEventListener"). So after the network dropped it sat out a
+// reconnect backoff of up to 16 s after the network was back, and a socket that had died without
+// an error went unnoticed until the client's 60 s server-inactivity timer fired.
 //
 // What it does:
-// - NetInfo says the network came back, or the network path changed: reconnect now.
-// - The app returns to the foreground after a while: reconnect now.
-// - A mutation is stuck or a screen has waited too long on a query: drop the socket and reconnect.
-// - Shortens the dead-socket timer from 60 s to 30 s (the server pings every 15 s).
+// - The network came back, the network path changed, or the app returned to the foreground: skip
+//   whatever is left of the reconnect backoff (`tryReconnectImmediately`, a no-op while connected).
+// - Replaces a socket that still claims to be open in two cases only: right after a network
+//   change, and when a mutation has had no answer for 10 s on a socket that has been open, with
+//   the app in front, for that long. Never while an action is in flight: replacing the socket
+//   fails every in-flight action with "Connection lost while action was in flight", which is the
+//   error this module exists to prevent. It does not reset on foregrounding, a slow spinner
+//   never resets anything, and the client's own 60 s dead-socket timer is left as it is.
 // - Publishes "ok" / "reconnecting" / "offline" for the UI (ConnectionPill, Loading, home header).
 //
 // It reaches into the client's WebSocket manager (not public API). Every access is guarded, so if
@@ -20,6 +24,7 @@
 // reconnect logic still applies.
 import NetInfo from "@react-native-community/netinfo";
 import { AppState } from "react-native";
+import { mutationIsStuck } from "./connectionRules";
 import { convex } from "./convex";
 import { replace, replaceInterval, singleton } from "./runtime";
 import { sharedStore, useStoreSelector } from "./store";
@@ -39,17 +44,13 @@ export const connectionStore = sharedStore<State>("connection", { status: "ok", 
 
 /** How long the socket must be down before the UI says so. */
 const SHOW_AFTER_MS = 2500;
-/** A mutation that hasn't completed in this long means the socket is stalled, not slow. */
-const STUCK_MUTATION_MS = 10_000;
-/** Never force more than one reconnect per this window (a forced reconnect fails in-flight actions). */
+/** Never replace the socket more often than this. */
 const MIN_RESTART_GAP_MS = 15_000;
-/** Back from the background after at least this long: the socket is probably dead. */
-const STALE_AFTER_BACKGROUND_MS = 20_000;
-const INACTIVITY_MS = 30_000;
+/** Give up replacing the socket for one stuck mutation after this many tries; the client's own timers take over. */
+const MAX_STUCK_RESTARTS = 2;
 
 type Manager = {
-  socket?: { state?: string };
-  serverInactivityThreshold?: number;
+  socket?: { state?: string; paused?: string };
   tryReconnectImmediately?: () => void;
   closeAndReconnect?: (reason: string) => void;
 };
@@ -65,14 +66,20 @@ function manager(): Manager | null {
 
 type Mem = {
   lastRestartAt: number;
-  backgroundedAt: number | null;
+  /** When the socket last became open (0 while it's closed). */
+  connectedSince: number;
+  connectionCount: number;
+  /** When the app last came to the foreground. */
+  activeSince: number;
+  /** Restarts spent on the mutation that's currently stuck. */
+  stuckRestarts: number;
   networkKey: string | null;
   showTimer: ReturnType<typeof setTimeout> | null;
 };
 const mem = () =>
-  singleton<Mem>("connection.mem", () => ({ lastRestartAt: 0, backgroundedAt: null, networkKey: null, showTimer: null }));
+  singleton<Mem>("connection.mem", () => ({ lastRestartAt: 0, connectedSince: 0, connectionCount: 0, activeSince: 0, stuckRestarts: 0, networkKey: null, showTimer: null }));
 
-/** If the client is waiting out a reconnect backoff, connect right now instead. Harmless otherwise. */
+/** If the client is waiting out a reconnect backoff, connect right now instead. Does nothing while connected. */
 export function reconnectNow() {
   try {
     manager()?.tryReconnectImmediately?.();
@@ -83,46 +90,34 @@ export function reconnectNow() {
 
 /**
  * Drop the current socket (it may be dead without knowing it) and open a new one. Queries
- * resubscribe and mutations are re-sent by the client; in-flight actions fail, so this is
- * rate-limited and only used when there's evidence the socket is stuck.
+ * resubscribe and mutations are re-sent by the client. In-flight actions would fail, so this
+ * refuses while any action is in flight, and it is rate-limited. Returns whether it did anything.
  */
-export function restartConnection(reason: string, opts: { force?: boolean } = {}): boolean {
+function restartConnection(reason: string): boolean {
   const m = manager();
   const s = mem();
   const now = Date.now();
-  if (!m) return false;
-  if (!opts.force) {
-    if (now - s.lastRestartAt < MIN_RESTART_GAP_MS) return false;
-    // On suspicion alone, never drop a socket that has an action in flight: the action would fail
-    // ("Connection lost while action was in flight") and may simply be a slow one.
-    if (inflightActions() > 0) return false;
+  if (!m || now - s.lastRestartAt < MIN_RESTART_GAP_MS) return false;
+  let cs;
+  try {
+    cs = convex.connectionState();
+  } catch {
+    return false;
   }
-  s.lastRestartAt = now;
+  if (cs.inflightActions > 0) return false;
   try {
     const state = m.socket?.state;
-    if (state === "ready" || state === "connecting") m.closeAndReconnect?.(reason);
+    if (state !== "ready" && state !== "connecting") {
+      m.tryReconnectImmediately?.();
+      return false;
+    }
+    s.lastRestartAt = now;
+    m.closeAndReconnect?.(reason);
     m.tryReconnectImmediately?.();
     return true;
   } catch {
     return false;
   }
-}
-
-function inflightActions(): number {
-  try {
-    return convex.connectionState().inflightActions;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * A screen has been waiting on data for too long: make sure it isn't waiting on a dead socket.
- * Does nothing while an action is in flight (the wait may be that action; see restartConnection).
- */
-export function nudgeConnection() {
-  if (connectionStore.get().socket) restartConnection("StalledQuery");
-  else reconnectNow();
 }
 
 function publish(patch: Partial<Pick<State, "online" | "socket">>) {
@@ -151,21 +146,25 @@ function publish(patch: Partial<Pick<State, "online" | "socket">>) {
   }, SHOW_AFTER_MS);
 }
 
+/** Record when the socket opened, so "stuck" is measured against this connection, not an old one. */
+function noteSocket(cs: { isWebSocketConnected: boolean; connectionCount: number }) {
+  const s = mem();
+  if (!cs.isWebSocketConnected) s.connectedSince = 0;
+  else if (!s.connectedSince || cs.connectionCount !== s.connectionCount) s.connectedSince = Date.now();
+  s.connectionCount = cs.connectionCount;
+  publish({ socket: cs.isWebSocketConnected });
+}
+
 /** Mounted once by the signed-in app. Idempotent (Fast Refresh safe). */
 export function startConnectionWatch() {
   const s = mem();
   // Tear down a previous watch first (Fast Refresh, sign-out and back in), so its teardown can't
   // clear the timer this run is about to arm.
   replace("connection.watch", () => {});
-  const m = manager();
-  if (m && typeof m.serverInactivityThreshold === "number" && m.serverInactivityThreshold > INACTIVITY_MS) {
-    m.serverInactivityThreshold = INACTIVITY_MS;
-  }
-
   let unsubState = () => {};
   try {
-    publish({ socket: convex.connectionState().isWebSocketConnected });
-    unsubState = convex.subscribeToConnectionState((cs) => publish({ socket: cs.isWebSocketConnected }));
+    noteSocket(convex.connectionState());
+    unsubState = convex.subscribeToConnectionState(noteSocket);
   } catch {
     // no connection state: the pill just never shows
   }
@@ -179,33 +178,28 @@ export function startConnectionWatch() {
     s.networkKey = online ? key : null;
     publish({ online });
     if (!online) return;
-    // Back online, or Wi-Fi <-> cellular, or a different Wi-Fi: a socket that still looks open is
-    // bound to a path that's gone, so replace it now (forced: its actions are lost either way).
+    // Back online, or Wi-Fi <-> cellular, or a different Wi-Fi. Usually the old socket has already
+    // failed and the client is waiting out its backoff: connect now. If it still claims to be
+    // open it is bound to a path that's gone, so replace it (unless an action is in flight).
     const changed = !was || (prevKey !== null && prevKey !== key);
     if (!changed) return;
-    const state = manager()?.socket?.state;
-    if (state === "ready" || state === "connecting") restartConnection("NetworkChanged", { force: true });
-    else reconnectNow();
+    reconnectNow();
+    restartConnection("NetworkChanged");
   });
 
   const appSub = AppState.addEventListener("change", (state) => {
-    const now = Date.now();
-    // Only a real trip to the background counts. "inactive" is Control Center or a system prompt.
-    if (state === "background") {
-      s.backgroundedAt ??= now;
-      return;
-    }
     if (state !== "active") return;
-    const away = s.backgroundedAt ? now - s.backgroundedAt : 0;
-    s.backgroundedAt = null;
+    s.activeSince = Date.now();
     // A drop that happened while nobody was looking gets the same grace period as any other:
     // don't flash "Reconnecting…" the instant the app opens.
     if (!connectionStore.get().socket) {
       connectionStore.set({ status: "ok" });
       publish({});
     }
-    if (away > STALE_AFTER_BACKGROUND_MS) restartConnection("Resumed", { force: true });
-    else reconnectNow();
+    // No reset here. If iOS suspended the app long enough for the socket to die, the client's
+    // own inactivity timer has expired and resets it as soon as JS runs again; if the socket
+    // survived, resetting it would only fail whatever action is in flight.
+    reconnectNow();
   });
 
   replace("connection.watch", () => {
@@ -216,8 +210,6 @@ export function startConnectionWatch() {
     s.showTimer = null;
   });
 
-  // Mutations normally finish in well under a second. One that's still in flight after 10 s on a
-  // socket that claims to be open means nothing is getting through.
   replaceInterval(
     "connection.watchdog",
     () => {
@@ -228,13 +220,19 @@ export function startConnectionWatch() {
       } catch {
         return;
       }
-      // With no action in flight, the oldest in-flight request is a mutation: one specific
-      // request that has been waiting too long, not just "some mutation was in flight each time
-      // we looked".
-      const oldest = cs.timeOfOldestInflightRequest?.getTime();
-      if (cs.isWebSocketConnected && cs.inflightMutations > 0 && cs.inflightActions === 0 && oldest && Date.now() - oldest > STUCK_MUTATION_MS) {
-        restartConnection("StalledMutation");
+      if (cs.inflightMutations === 0) {
+        s.stuckRestarts = 0;
+        return;
       }
+      // "yes" while connecting, "uninitialized" once open but still waiting for the sign-in
+      // token: either way nothing is being sent, so nothing can be stuck.
+      const p = manager()?.socket?.paused;
+      const paused = p !== undefined && p !== "no";
+      // Counted from when this socket opened or the app last came to the front, whichever is
+      // later: time spent suspended isn't time the server failed to answer.
+      if (!mutationIsStuck(cs, Math.max(s.connectedSince, s.activeSince), Date.now(), paused)) return;
+      if (s.stuckRestarts >= MAX_STUCK_RESTARTS) return;
+      if (restartConnection("StalledMutation")) s.stuckRestarts++;
     },
     3000,
   );
