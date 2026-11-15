@@ -8,7 +8,6 @@ import { api } from "../../../lib/convex-api";
 import type { Thread } from "../../../lib/types";
 import { useListening } from "../../../lib/useListening";
 import { useNewChat } from "../../../lib/useNewChat";
-import { noEdgeEffects } from "../../../navigation";
 import { type } from "../../../theme";
 import { Loading } from "../../../ui";
 
@@ -26,7 +25,6 @@ export default function Home() {
     <>
       <Stack.Screen
         options={{
-          ...noEdgeEffects,
           headerTitle: () => (
             <View style={{ alignItems: "center" }}>
               <Wordmark width={56} />

@@ -22,7 +22,8 @@ export const stackOptions: NativeStackNavigationOptions = {
 
 /**
  * Chat screens use an inverted list and draw their own fade under the header (ChatView), so the
- * system edge effects are off there: on a flipped scroll view they can land on the wrong edge.
+ * system edge effects are off there: on a flipped scroll view the top one blurs the whole list.
+ * ChatView sets this itself once its list is mounted; screens must not set it up front (see there).
  */
 export const noEdgeEffects: NativeStackNavigationOptions = {
   scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },

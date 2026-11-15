@@ -91,6 +91,8 @@ function openThread(data: PushData) {
 }
 
 const handled = new Set<string>();
+/** The Expo push token this launch already registered with the backend. */
+let savedToken: string | null = null;
 
 /**
  * Mounted once inside the signed-in app: registers this phone (asking for permission the first
@@ -105,14 +107,29 @@ export function usePushNotifications() {
   useEffect(() => {
     if (asked.current) return;
     asked.current = true;
-    const save = (token: string) =>
-      register({ token, platform: "ios", deviceName: Device.deviceName ?? Device.modelName ?? undefined }).catch(() => {});
+    const save = (token: string) => {
+      // Once per token per launch: the row only needs to exist, and every call is a write.
+      if (token === savedToken) return;
+      savedToken = token;
+      register({ token, platform: "ios", deviceName: Device.deviceName ?? Device.modelName ?? undefined }).catch(() => {
+        savedToken = null;
+      });
+    };
     requestPushToken(true)
       .then((t) => t && save(t))
       .catch((e) => console.warn("[push] no token:", e instanceof Error ? e.message : e));
-    // APNs can rotate the device token; re-register when it does.
-    const sub = Notifications.addPushTokenListener(() => {
-      requestPushToken(false).then((t) => t && save(t)).catch(() => {});
+    // APNs can rotate the device token; re-register when it does. Asking for a token fires this
+    // listener too (expo-notifications registers with APNs on every getExpoPushTokenAsync), so
+    // reacting to every event re-asked, which fired it again: about three push.register calls a
+    // second, forever. They queued ahead of everything else the app sent ("Sending…" that never
+    // finished), and the backlog stalled the socket ("Reconnecting…" every few seconds). Only a
+    // device token different from the one already seen counts as a rotation.
+    let deviceToken: string | null = null;
+    const sub = Notifications.addPushTokenListener((t) => {
+      const value = typeof t.data === "string" ? t.data : JSON.stringify(t.data);
+      const rotated = deviceToken !== null && value !== deviceToken;
+      deviceToken = value;
+      if (rotated) requestPushToken(false).then((tok) => tok && save(tok)).catch(() => {});
     });
     return () => sub.remove();
   }, [register]);

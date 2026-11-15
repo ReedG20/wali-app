@@ -117,6 +117,10 @@ function inline(text: string, base: TextStyle): ReactNode[] {
 export const Markdown = memo(function Markdown({ text, size = 16, tint = color.ink }: { text: string; size?: number; tint?: string }) {
   const base: TextStyle = { fontFamily: font.body, fontSize: size, lineHeight: Math.round(size * 1.58), color: tint };
   const blocks = parseBlocks(text);
+  // Wide enough for the longest number in the message ("25."), so the period never wraps under it
+  // and every item's text starts at the same place.
+  const digits = Math.max(1, ...blocks.map((b) => (b.kind === "li" && b.ordered ? String(b.n).length : 1)));
+  const numberWidth = Math.ceil(size * (0.62 * digits + 0.75));
   return (
     <View style={{ gap: 10 }}>
       {blocks.map((b, i) => {
@@ -129,7 +133,9 @@ export const Markdown = memo(function Markdown({ text, size = 16, tint = color.i
         if (b.kind === "li")
           return (
             <View key={i} style={{ flexDirection: "row", paddingLeft: b.depth * 16, marginTop: -4 }}>
-              <Text style={[base, { width: b.ordered ? 22 : 16, color: color.ink2 }]}>{b.ordered ? `${b.n}.` : "•"}</Text>
+              <Text numberOfLines={1} style={[base, { width: b.ordered ? numberWidth : 16, color: color.ink2, fontVariant: ["tabular-nums"] }]}>
+                {b.ordered ? `${b.n}.` : "•"}
+              </Text>
               <Text style={[base, { flex: 1 }]} selectable>
                 {inline(b.text, base)}
               </Text>

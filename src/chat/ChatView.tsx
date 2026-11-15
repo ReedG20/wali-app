@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from "convex/react";
 import type { GenericId as Id } from "convex/values";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useNavigation } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { FadeInDown, useAnimatedStyle } from "react-native-reanimated";
@@ -13,6 +13,7 @@ import { friendlyError } from "../lib/errors";
 import { setActiveThread } from "../lib/notifications";
 import { timeLabel } from "../lib/time";
 import type { Message } from "../lib/types";
+import { noEdgeEffects } from "../navigation";
 import { color, display, font, type } from "../theme";
 import { Markdown } from "../ui/Markdown";
 import { Loading, Spinner } from "../ui";
@@ -122,6 +123,21 @@ export function ChatView({ threadId }: { threadId: Id<"threads"> }) {
   }, [messages]);
   const loading = messages === undefined;
   const empty = messages && messages.length === 0;
+
+  // iOS 26 draws a scroll edge effect (a blur) under the header. On this inverted list it works out
+  // the "top" edge in the flipped coordinates and blurs the whole list: the blurry overlay on chats.
+  // react-native-screens applies `scrollEdgeEffects` only when the option changes, and only to a
+  // scroll view that exists at that moment; while the thread loads there is none, so a value set by
+  // the screen never reached the list. Hide the effects from here, once the list is on screen. The
+  // screen keeps the stack's default until then, so this is always a change that native applies.
+  const navigation = useNavigation();
+  const listShown = !loading && !empty;
+  useEffect(() => {
+    if (!listShown) return;
+    // After the list's native view is mounted (the screen looks for its first scroll view).
+    const id = requestAnimationFrame(() => navigation.setOptions(noEdgeEffects));
+    return () => cancelAnimationFrame(id);
+  }, [listShown, navigation]);
   // Paper is solid behind the whole header, then fades out just below it, so the title and the
   // "Listening" line never sit on top of message text.
   const edgeHeight = headerHeight + 28;

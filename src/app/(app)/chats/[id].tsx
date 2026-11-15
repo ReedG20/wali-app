@@ -5,7 +5,6 @@ import { Alert, Text, View } from "react-native";
 import { ChatView } from "../../../chat/ChatView";
 import { api } from "../../../lib/convex-api";
 import type { Thread } from "../../../lib/types";
-import { noEdgeEffects } from "../../../navigation";
 import { color, type } from "../../../theme";
 import { friendlyError } from "../../../lib/errors";
 
@@ -28,7 +27,7 @@ export default function ThreadScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ ...noEdgeEffects, title: thread?.title ?? "Chat", headerLargeTitle: false }} />
+      <Stack.Screen options={{ title: thread?.title ?? "Chat", headerLargeTitle: false }} />
       {thread?.kind === "chat" ? (
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.Menu icon="ellipsis">
