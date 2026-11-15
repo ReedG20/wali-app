@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef } from "react";
 import { bleStore } from "./ble";
 import { api } from "./convex-api";
+import { pendantName } from "./pendantName";
 import { useStoreSelector } from "./store";
 
 type Device = { _id: string; name: string; status: "connected" | "disconnected" };
@@ -25,6 +26,6 @@ export function usePendantLink() {
     if (devices.some((d) => d.status === "connected")) return;
     if (done.current === deviceId) return;
     done.current = deviceId;
-    void connect({ name: deviceName ?? "wali pendant" });
+    void connect({ name: pendantName(deviceName) });
   }, [link, deviceId, deviceName, devices, connect]);
 }

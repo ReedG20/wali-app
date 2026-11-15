@@ -2,13 +2,13 @@ import { DatePicker, Form, Host, Section, Stepper, Text, Toggle } from "@expo/ui
 import { datePickerStyle, font as swiftFont, foregroundStyle, scrollContentBackground, background, tint } from "@expo/ui/swift-ui/modifiers";
 import { useMutation, useQuery } from "convex/react";
 import { Stack } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { LIMITS, PROACTIVE_COPY as C, type Proactive } from "../../../lib/settingsCopy";
 import { color, font } from "../../../theme";
-import { Spinner } from "../../../ui";
+import { Loading } from "../../../ui";
 
 const atHour = (h: number) => {
   const d = new Date();
@@ -26,16 +26,33 @@ export default function ProactiveSettings() {
   const me = useQuery(api.users.me) as { proactive: Proactive } | null | undefined;
   const update = useMutation(api.users.updateProactive);
   const [p, setP] = useState<Proactive | null>(null);
+  const saving = useRef(0);
+  const server = me?.proactive;
+  const serverRef = useRef(server);
+  serverRef.current = server;
 
+  // Show what the server has, not the copy taken when the screen opened: that copy went stale if
+  // the setting changed elsewhere (the web app, a reset) or a save never landed, so this page
+  // could show one quiet-hours window while wali was using another. While a save is in flight the
+  // local edit wins; when it settles, the server value comes back in.
   useEffect(() => {
-    if (me && !p) setP(me.proactive);
-  }, [me, p]);
+    if (server && saving.current === 0) setP(server);
+  }, [server]);
 
   function save(patch: Partial<Proactive>) {
     if (!p) return;
     const next = { ...p, ...patch };
     setP(next);
-    update(next).catch((e) => Alert.alert("Couldn't save", errorText(e, "Try again.")));
+    saving.current++;
+    update(next)
+      .catch((e) => {
+        Alert.alert("Couldn't save", errorText(e, "Try again."));
+        // Put back what's actually saved, so the page never shows a value that didn't stick.
+        if (saving.current === 1 && serverRef.current) setP(serverRef.current);
+      })
+      .finally(() => {
+        saving.current--;
+      });
   }
 
   const body = [swiftFont({ family: font.body, size: 16 })];
@@ -45,9 +62,7 @@ export default function ProactiveSettings() {
     <>
       <Stack.Screen options={{ title: C.title, headerLargeTitle: false }} />
       {!p ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Spinner />
-        </View>
+        <Loading />
       ) : (
         <Host style={{ flex: 1 }}>
           <Form modifiers={[scrollContentBackground("hidden"), background(color.paper), tint(color.ink)]}>

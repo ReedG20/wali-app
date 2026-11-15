@@ -2,14 +2,14 @@ import { useAction, useQuery } from "convex/react";
 import { Image } from "expo-image";
 import { router, Stack } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { PERMISSION_LABEL, type PermissionMode } from "../../../lib/permissions";
 import { color, type } from "../../../theme";
-import { Card, Empty, Icon, Lede, Page, Pill, Row, SectionHead, Spinner } from "../../../ui";
-import { useReadAction } from "../../../lib/useReadAction";
+import { Card, Empty, Icon, Lede, LoadError, Loading, Page, Pill, Row, SectionHead } from "../../../ui";
+import { useReadAction, useTimedAction } from "../../../lib/useReadAction";
 
 type Toolkit = { slug: string; name: string; logo: string | null; connected: boolean; status: string | null };
 type State = {
@@ -34,19 +34,34 @@ const CALLBACK = "wali://connections";
 export default function Connections() {
   const load = useReadAction(api.agentNode.connections);
   const me = useQuery(api.users.me) as { permissions?: PermissionMode } | null | undefined;
-  const connectApp = useAction(api.agentNode.connectApp);
-  const disconnectApp = useAction(api.agentNode.disconnectApp);
-  const startSignIn = useAction(api.agentNode.startBrowserSignIn);
+  const connectApp = useTimedAction(api.agentNode.connectApp);
+  const disconnectApp = useTimedAction(api.agentNode.disconnectApp);
+  // Starting a cloud browser takes a while.
+  const startSignIn = useTimedAction(api.agentNode.startBrowserSignIn, 60_000);
   const stopSignIn = useAction(api.agentNode.stopBrowserSignIn);
   const [state, setState] = useState<State | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
+  // A failed load is shown in the page with a way to retry. It used to be an alert, which could
+  // arrive minutes later on top of a different screen.
   const refresh = useCallback(async () => {
     try {
-      setState((await load({})) as State);
+      const next = (await load({})) as State;
+      if (!alive.current) return;
+      setState(next);
+      setLoadError(null);
     } catch (e) {
-      Alert.alert("Couldn't load connections", errorText(e, "Try again."));
+      if (alive.current) setLoadError(errorText(e, "Connections didn't load. Try again."));
     }
   }, [load]);
 
@@ -93,7 +108,7 @@ export default function Connections() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Connections", headerLargeTitle: true }} />
+      <Stack.Screen options={{ title: "Connections", headerLargeTitle: false }} />
       <Page
         refreshControl={
           <RefreshControl
@@ -117,14 +132,22 @@ export default function Connections() {
           />
         </Card>
 
-        {!state ? (
-          <View style={{ paddingTop: 30 }}>
-            <Spinner />
-          </View>
+        {!state && loadError ? (
+          <LoadError
+            message={loadError}
+            busy={retrying}
+            onRetry={async () => {
+              setRetrying(true);
+              await refresh();
+              if (alive.current) setRetrying(false);
+            }}
+          />
+        ) : !state ? (
+          <Loading fill={false} />
         ) : !s?.composio ? (
-          <Empty>Add a Composio key in Convex to connect Gmail, Calendar, Slack and more.</Empty>
+          <Empty>Connecting apps isn&apos;t set up for this account yet.</Empty>
         ) : state.error ? (
-          <Empty>Composio returned an error: {state.error}</Empty>
+          <LoadError message="Your apps didn't load. Pull down to try again." />
         ) : (
           <View style={{ gap: 10 }}>
             {state.toolkits.map((t) => (
@@ -154,7 +177,9 @@ export default function Connections() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={type.label}>Signed-in browser</Text>
-            <Text style={type.meta}>{state?.browserProfile ? "Profile created" : "Created the first time you use it"}</Text>
+            <Text style={type.meta}>
+              {!state ? (loadError ? "Couldn't check" : "Checking…") : state.browserProfile ? "Set up. Sign in to more sites any time." : "Set up the first time you use it"}
+            </Text>
           </View>
           <Pill title="Sign in" size="sm" busy={busy === "browser"} disabled={!s?.browserUse} onPress={signInBrowser} />
         </Card>
@@ -163,15 +188,15 @@ export default function Connections() {
         <Card padded={false}>
           {(
             [
-              ["Model (OpenRouter)", s?.model],
-              ["Apps (Composio)", s?.composio],
-              ["Browser (Browser Use)", s?.browserUse],
+              ["Replies", s?.model],
+              ["Connected apps", s?.composio],
+              ["Browser", s?.browserUse],
             ] as const
           ).map(([label, ok], i) => (
             <View key={label} style={[st.svc, i > 0 && st.line]}>
               <View style={[st.dot, { backgroundColor: ok ? color.ink : "rgba(154,149,139,0.4)" }]} />
               <Text style={[type.bodySm, { flex: 1 }]}>{label}</Text>
-              <Text style={type.meta}>{ok === undefined ? "Checking…" : ok ? "Ready" : "Not set up"}</Text>
+              <Text style={type.meta}>{ok === undefined ? (loadError ? "Couldn't check" : "Checking…") : ok ? "Ready" : "Not set up"}</Text>
             </View>
           ))}
         </Card>

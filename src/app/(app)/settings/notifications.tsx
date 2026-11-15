@@ -1,16 +1,18 @@
 import { Button, Form, Host, LabeledContent, Section, Text, Toggle } from "@expo/ui/swift-ui";
 import { background, font as swiftFont, foregroundStyle, scrollContentBackground, tint } from "@expo/ui/swift-ui/modifiers";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import * as Device from "expo-device";
 import { Stack, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 import { api } from "../../../lib/convex-api";
+import { friendlyError } from "../../../lib/errors";
+import { useTimedAction } from "../../../lib/useReadAction";
 import { pushPermission, requestPushToken, type PushPermission } from "../../../lib/notifications";
 import { NOTIFY_COPY as C, type Notify } from "../../../lib/settingsCopy";
 import { ago } from "../../../lib/time";
 import { color, font } from "../../../theme";
-import { Spinner } from "../../../ui";
+import { Loading } from "../../../ui";
 
 type Phone = { _id: string; platform: string; deviceName: string | null; updatedAt: number };
 
@@ -27,14 +29,19 @@ export default function NotificationSettings() {
   const phones = (useQuery(api.push.devices) ?? []) as Phone[];
   const update = useMutation(api.users.updateNotify);
   const register = useMutation(api.push.register);
-  const sendTest = useAction(api.push.sendTest);
+  const sendTest = useTimedAction(api.push.sendTest, 20_000);
   const [n, setN] = useState<Notify | null>(null);
   const [perm, setPerm] = useState<PushPermission | null>(null);
   const [testing, setTesting] = useState(false);
 
+  const saving = useRef(0);
+  const server = me?.notify;
+  const serverRef = useRef(server);
+  serverRef.current = server;
+  // Follow the server (see proactive.tsx): never keep showing a switch position that didn't save.
   useEffect(() => {
-    if (me && !n) setN(me.notify);
-  }, [me, n]);
+    if (server && saving.current === 0) setN(server);
+  }, [server]);
 
   // Coming back from iOS Settings may have changed the answer.
   useFocusEffect(
@@ -47,7 +54,15 @@ export default function NotificationSettings() {
     if (!n) return;
     const next = { ...n, ...patch };
     setN(next);
-    update(next).catch((e) => Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e)));
+    saving.current++;
+    update(next)
+      .catch((e) => {
+        Alert.alert("Couldn't save", friendlyError(e, "Try again."));
+        if (saving.current === 1 && serverRef.current) setN(serverRef.current);
+      })
+      .finally(() => {
+        saving.current--;
+      });
   }
 
   async function turnOn() {
@@ -56,18 +71,19 @@ export default function NotificationSettings() {
       const token = await requestPushToken(true);
       if (token) await register({ token, platform: "ios", deviceName: Device.deviceName ?? undefined });
     } catch (e) {
-      Alert.alert("Couldn't turn on notifications", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't turn on notifications", friendlyError(e, "Try again."));
     }
     setPerm(await pushPermission());
   }
 
   async function test() {
+    if (testing) return;
     setTesting(true);
     try {
       const { sent } = await sendTest({});
-      if (!sent) Alert.alert("Nothing was sent", "This phone isn't registered yet, or Apple hasn't accepted the push key. Check the EAS push credentials.");
+      if (!sent) Alert.alert("Nothing was sent", "This phone isn't set up for notifications yet. Turn notifications off and on again in iOS Settings, then reopen wali.");
     } catch (e) {
-      Alert.alert("Couldn't send", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't send the test", friendlyError(e, "Try again."));
     } finally {
       setTesting(false);
     }
@@ -81,9 +97,7 @@ export default function NotificationSettings() {
     <>
       <Stack.Screen options={{ title: C.title, headerLargeTitle: false }} />
       {!n || !perm ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Spinner />
-        </View>
+        <Loading />
       ) : (
         <Host style={{ flex: 1 }}>
           <Form modifiers={[scrollContentBackground("hidden"), background(color.paper), tint(color.ink)]}>

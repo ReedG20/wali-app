@@ -19,7 +19,7 @@ export const LIMITS = { maxPerHour: 20, maxPerDay: 100 };
 
 export const PROACTIVE_COPY = {
   title: "When wali speaks up",
-  intro: "Jev, a decision model, scores every finished conversation. These rules sit around it. Signs of distress always get through.",
+  intro: "wali weighs every finished conversation before deciding whether to say anything. These rules sit around that. Signs of distress always get through.",
   enabled: { title: "Proactive nudges", hint: "Let wali message you first." },
   quiet: {
     title: "Quiet hours",

@@ -1,10 +1,10 @@
 import { useAction } from "convex/react";
 import { router, Stack } from "expo-router";
 import { useState } from "react";
-import { Alert, StyleSheet, TextInput, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
 import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
-import { color, font } from "../../../theme";
+import { color, font, type } from "../../../theme";
 import { Card, Lede, Page, Pill } from "../../../ui";
 
 const SAMPLE = `Speaker 1: I keep saying I'll call my mom back and then it's Friday again.
@@ -25,7 +25,7 @@ export default function TryIt() {
     try {
       if (kind === "sim") await simulate({ transcript: sample });
       else await checkNow({});
-      Alert.alert("wali looked it over", "Anything it decided to say is in your wali thread. Activity has the gate scores.", [
+      Alert.alert("wali looked it over", "Anything it decided to say is in your wali thread. Activity shows how it decided.", [
         { text: "See activity", onPress: () => router.replace("/(app)/settings/activity") },
         { text: "OK", style: "cancel" },
       ]);
@@ -38,9 +38,9 @@ export default function TryIt() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Try it", headerLargeTitle: true }} />
+      <Stack.Screen options={{ title: "Try it without the pendant", headerLargeTitle: false }} />
       <Page>
-        <Lede>Run a conversation through the same pipeline: rules, the Jev gate, then the agent. No pendant needed.</Lede>
+        <Lede>Run a conversation through wali exactly as if the pendant had heard it. No pendant needed.</Lede>
         <Card style={{ padding: 10 }}>
           <TextInput
             value={sample}
@@ -52,6 +52,9 @@ export default function TryIt() {
             accessibilityLabel="Conversation transcript"
           />
         </Card>
+        <Text style={[type.meta, { marginTop: 12 }]}>
+          This is the real thing, not a preview: wali may message you, save notes to memory, set follow-ups or ask to act in your apps, just as it would after a real conversation.
+        </Text>
         <View style={{ gap: 10, marginTop: 16 }}>
           <Pill title="Run through wali" size="lg" busy={running === "sim"} disabled={!!running || !sample.trim()} onPress={() => run("sim")} />
           <Pill title="Check the last two hours" size="lg" kind="secondary" busy={running === "check"} disabled={!!running} onPress={() => run("check")} />
