@@ -30,6 +30,8 @@ function detail(tool: ToolPart) {
     return res?.status === "awaiting_approval" ? `${slug} · waiting for your OK` : slug;
   }
   if (tool.toolName === "search_memory") return args?.query ? `“${String(args.query)}”` : "";
+  // The backend skips a note that repeats a recent one word for word.
+  if (tool.toolName === "save_note" && res?.saved === false) return "already saved";
   if (tool.toolName === "schedule_followup") return res?.scheduledFor ? `for ${String(res.scheduledFor)}` : "";
   if (tool.toolName === "browser_task" && res?.status === "awaiting_approval") return "waiting for your OK";
   return "";
@@ -40,7 +42,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
   const [open, setOpen] = useState(false);
   const meta = LABELS[tool.toolName] ?? { icon: "wrench.and.screwdriver" as SFSymbol, running: tool.toolName, done: tool.toolName };
   const res = asRecord(tool.result);
-  const connectUrl = tool.toolName === "connect_app" && typeof res?.connectUrl === "string" ? res.connectUrl : null;
+  const connectUrl = tool.toolName === "connect_app" && typeof res?.connectUrl === "string" && /^https:\/\//i.test(res.connectUrl) ? res.connectUrl : null;
   const d = detail(tool);
 
   return (
@@ -70,7 +72,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
           icon="checkmark"
           size="sm"
           style={{ marginTop: 8 }}
-          onPress={() => void WebBrowser.openAuthSessionAsync(connectUrl, "wali://connections")}
+          onPress={() => void WebBrowser.openAuthSessionAsync(connectUrl, "wali://connections").catch(() => {})}
         />
       ) : null}
     </View>

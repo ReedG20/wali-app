@@ -2,13 +2,11 @@ import { DatePicker, Form, Host, Section, Stepper, Text, Toggle } from "@expo/ui
 import { datePickerStyle, font as swiftFont, foregroundStyle, scrollContentBackground, background, tint } from "@expo/ui/swift-ui/modifiers";
 import { useMutation, useQuery } from "convex/react";
 import { Stack } from "expo-router";
-import { useEffect, useState } from "react";
-import { Alert, View } from "react-native";
-import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { LIMITS, PROACTIVE_COPY as C, type Proactive } from "../../../lib/settingsCopy";
+import { useSyncedSetting } from "../../../lib/useSyncedSetting";
 import { color, font } from "../../../theme";
-import { Spinner } from "../../../ui";
+import { Loading } from "../../../ui";
 
 const atHour = (h: number) => {
   const d = new Date();
@@ -25,18 +23,8 @@ const toHour = (d: Date) => (d.getMinutes() >= 30 ? (d.getHours() + 1) % 24 : d.
 export default function ProactiveSettings() {
   const me = useQuery(api.users.me) as { proactive: Proactive } | null | undefined;
   const update = useMutation(api.users.updateProactive);
-  const [p, setP] = useState<Proactive | null>(null);
-
-  useEffect(() => {
-    if (me && !p) setP(me.proactive);
-  }, [me, p]);
-
-  function save(patch: Partial<Proactive>) {
-    if (!p) return;
-    const next = { ...p, ...patch };
-    setP(next);
-    update(next).catch((e) => Alert.alert("Couldn't save", errorText(e, "Try again.")));
-  }
+  const [p, setP] = useSyncedSetting(me?.proactive, update);
+  const save = (patch: Partial<Proactive>) => p && setP({ ...p, ...patch });
 
   const body = [swiftFont({ family: font.body, size: 16 })];
   const note = [swiftFont({ family: font.body, size: 13 }), foregroundStyle(color.ink2)];
@@ -45,9 +33,7 @@ export default function ProactiveSettings() {
     <>
       <Stack.Screen options={{ title: C.title, headerLargeTitle: false }} />
       {!p ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Spinner />
-        </View>
+        <Loading />
       ) : (
         <Host style={{ flex: 1 }}>
           <Form modifiers={[scrollContentBackground("hidden"), background(color.paper), tint(color.ink)]}>

@@ -7,10 +7,12 @@ import { ActionSheetIOS, Alert, StyleSheet, Switch, Text, View } from "react-nat
 import { EmberDot } from "../../../brand";
 import { bleStore, connect, disconnect, scan, setMuted } from "../../../lib/ble";
 import { api } from "../../../lib/convex-api";
+import { friendlyError } from "../../../lib/errors";
 import { forgetPushToken } from "../../../lib/notifications";
+import { pendantName } from "../../../lib/pendantName";
 import { PERMISSION_LABEL, type PermissionMode } from "../../../lib/permissions";
 import { useStore } from "../../../lib/store";
-import { ago } from "../../../lib/time";
+import { ago, storage } from "../../../lib/time";
 import { largeTitle } from "../../../navigation";
 import { color, display, font, type } from "../../../theme";
 import { Card, Icon, Lede, Page, Pill, Row, SectionHead } from "../../../ui";
@@ -51,7 +53,7 @@ export default function PendantTab() {
         : "No pendant yet.";
 
   const sub = connected
-    ? `${ble.deviceName ?? "wali pendant"}${st ? ` · ${st.sd ? `${st.sdFree} MB free on SD` : "buffering in memory"}` : ""}`
+    ? `${pendantName(ble.deviceName)}${st ? ` · ${st.sd ? `${storage(st.sdFree)} free` : "no storage card"}` : ""}`
     : stream
       ? `Last conversation ${ago(stream.lastEndedAt)}`
       : "Turn the pendant on and keep it near your phone.";
@@ -62,7 +64,7 @@ export default function PendantTab() {
     try {
       await setMuted(!st.muted);
     } catch (e) {
-      Alert.alert(st.muted ? "Couldn't unmute" : "Couldn't mute", errorMessage(e));
+      Alert.alert(st.muted ? "Couldn't unmute" : "Couldn't mute", friendlyError(e, "Try again."));
     } finally {
       setMuteBusy(false);
     }
@@ -121,8 +123,8 @@ export default function PendantTab() {
                 key={d.id}
                 first={i === 0}
                 icon="circle.circle"
-                title={d.name ?? "wali pendant"}
-                subtitle={`${d.rssi} dBm`}
+                title={pendantName(d.name)}
+                subtitle={d.rssi > -60 ? "Very close" : d.rssi > -80 ? "Nearby" : "Weak signal"}
                 chevron={false}
                 trailing={<Pill title="Connect" size="sm" onPress={() => void connect(d.id, d.name)} />}
               />
@@ -146,12 +148,14 @@ export default function PendantTab() {
                 value={accountLinked}
                 trackColor={{ true: color.ink }}
                 onValueChange={(on) =>
-                  on ? void linkAccount({ name: ble.deviceName ?? "wali pendant" }) : device && void unlinkAccount({ id: device._id as never })
+                  void (on ? linkAccount({ name: pendantName(ble.deviceName) }) : device ? unlinkAccount({ id: device._id as never }) : Promise.resolve()).catch((e) =>
+                    Alert.alert("Couldn't change that", friendlyError(e, "Try again.")),
+                  )
                 }
               />
             }
           />
-          <Row icon="slider.horizontal.3" title="Pendant details" subtitle="Levels, storage, link health" onPress={() => router.push("/(app)/settings/device")} />
+          <Row icon="slider.horizontal.3" title="Pendant details" subtitle="Status, storage, troubleshooting" onPress={() => router.push("/(app)/settings/device")} />
         </Card>
 
         <SectionHead title="wali" />
@@ -160,7 +164,7 @@ export default function PendantTab() {
           <Row icon="hand.raised" title="What wali can do" subtitle={PERMISSION_LABEL[me?.permissions ?? "balanced"]} onPress={() => router.push("/(app)/settings/permissions")} />
           <Row icon="bell.badge" title="Notifications" subtitle="Nudges, approvals, updates" onPress={() => router.push("/(app)/settings/notifications")} />
           <Row icon="square.grid.2x2" title="Connections" subtitle="Gmail, Calendar, Slack and more" onPress={() => router.push("/(app)/settings/connections")} />
-          <Row icon="waveform.path.ecg" title="Activity" subtitle="Every time wali considered speaking" onPress={() => router.push("/(app)/settings/activity")} />
+          <Row icon="waveform.path.ecg" title="Activity" subtitle="When wali spoke up, and when it didn't" onPress={() => router.push("/(app)/settings/activity")} />
           <Row icon="text.bubble" title="Try it without the pendant" subtitle="Run a conversation through wali" onPress={() => router.push("/(app)/settings/try")} />
         </Card>
 
@@ -179,17 +183,3 @@ const s = StyleSheet.create({
   heroShade: { experimental_backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 35%, rgba(0,0,0,0.65) 100%)" },
   heroMeta: { fontFamily: font.medium, fontSize: 13.5, color: "rgba(255,255,255,0.8)" },
 });
-
-/** BLE errors arrive as plain objects ({ message, code }), not Errors. */
-function errorMessage(e: unknown) {
-  if (e instanceof Error) return e.message;
-  if (e && typeof e === "object") {
-    const o = e as { message?: unknown; reason?: unknown; code?: unknown };
-    const m = o.message ?? o.reason;
-    if (typeof m === "string" && m) return m;
-    try {
-      return JSON.stringify(e);
-    } catch {}
-  }
-  return String(e);
-}

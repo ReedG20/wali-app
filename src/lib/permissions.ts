@@ -33,4 +33,4 @@ export const PERMISSION_LABEL: Record<PermissionMode, string> = {
 
 /** Footer under the three choices, in both apps. */
 export const PERMISSIONS_NOTE =
-  "This covers your connected apps and the browser. wali's own memory, notes and reminders never need an OK. Anything waiting shows up in your thread and as a notification.";
+  "This covers your connected apps and the browser. wali's own memory, notes and reminders never need an OK. Anything waiting shows up in the chat where it came up and as a notification.";

@@ -3,28 +3,22 @@ import { background, font as swiftFont, foregroundStyle, multilineTextAlignment,
 import { useMutation, useQuery } from "convex/react";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
-import { useEffect, useState } from "react";
-import { View } from "react-native";
 import { api } from "../../../lib/convex-api";
 import { PERMISSION_MODES, PERMISSIONS_NOTE, type PermissionMode } from "../../../lib/permissions";
+import { useSyncedSetting } from "../../../lib/useSyncedSetting";
 import { color, font } from "../../../theme";
-import { Spinner } from "../../../ui";
+import { Loading } from "../../../ui";
 
 /** How much wali may do without asking. Native Form; same three choices as the web Connections page. */
 export default function PermissionsSettings() {
   const me = useQuery(api.users.me) as { permissions?: PermissionMode } | null | undefined;
   const update = useMutation(api.users.updatePermissions);
-  const [mode, setMode] = useState<PermissionMode | null>(null);
-
-  useEffect(() => {
-    if (me && !mode) setMode(me.permissions ?? "balanced");
-  }, [me, mode]);
+  const [mode, setMode] = useSyncedSetting<PermissionMode>(me ? (me.permissions ?? "balanced") : null, (next) => update({ mode: next }));
 
   function choose(next: PermissionMode) {
     if (next === mode) return;
-    setMode(next);
     void Haptics.selectionAsync();
-    void update({ mode: next });
+    setMode(next);
   }
 
   const title = [swiftFont({ family: font.medium, size: 16 }), foregroundStyle(color.ink)];
@@ -35,9 +29,7 @@ export default function PermissionsSettings() {
     <>
       <Stack.Screen options={{ title: "What wali can do", headerLargeTitle: false }} />
       {!mode ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Spinner />
-        </View>
+        <Loading />
       ) : (
         <Host style={{ flex: 1 }}>
           <Form modifiers={[scrollContentBackground("hidden"), background(color.paper), tint(color.ink)]}>
