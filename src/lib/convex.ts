@@ -9,6 +9,10 @@ export const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL ?? "";
 
 export const convex = new ConvexReactClient(CONVEX_URL || "https://missing-convex-url.invalid", {
   unsavedChangesWarning: false,
+  // Clerk's Convex tokens live 60 s. Start refreshing 20 s before expiry (default 10) so a slow
+  // token fetch on a weak connection doesn't let the token lapse: when it does, the client stops
+  // the socket to re-authenticate and every in-flight action fails with "Connection lost".
+  authRefreshTokenLeewaySeconds: 20,
 });
 
 /**

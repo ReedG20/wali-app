@@ -2,7 +2,7 @@
 // tab bar, search, switches, pickers, menus, alerts) comes from the platform instead.
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,6 +14,8 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { nudgeConnection, useConnectionStatus } from "../lib/connection";
 import { color, display, font, radius, softShadow, type } from "../theme";
 
 export function Icon({ name, size = 18, tint = color.ink2 }: { name: SFSymbol; size?: number; tint?: string }) {
@@ -172,7 +174,79 @@ export function Spinner({ tint = color.ink3 }: { tint?: string }) {
   return <ActivityIndicator size="small" color={tint} />;
 }
 
+/**
+ * A spinner that explains itself. After a few seconds it says why it's still there (offline,
+ * reconnecting, or just slow), and after a few more it makes sure the app isn't waiting on a dead
+ * connection. Use it wherever a screen waits on the server.
+ */
+export function Loading({ fill = true, style }: { fill?: boolean; style?: StyleProp<ViewStyle> }) {
+  const status = useConnectionStatus();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t1 = setTimeout(() => setSlow(true), 4000);
+    const t2 = setTimeout(nudgeConnection, 8000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
+  const hint =
+    status === "offline"
+      ? "You're offline. This loads when you're back."
+      : status === "reconnecting"
+        ? "Reconnecting…"
+        : slow
+          ? "Still loading…"
+          : null;
+  return (
+    <View style={[fill && { flex: 1 }, { alignItems: "center", justifyContent: "center", gap: 10, padding: 24, backgroundColor: fill ? color.paper : undefined }, style]}>
+      <Spinner />
+      {hint ? <Text style={[type.meta, { textAlign: "center" }]}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+/** Something didn't load: one sentence and a way to try again, in the page instead of an alert. */
+export function LoadError({ message, onRetry, busy }: { message: string; onRetry?: () => void; busy?: boolean }) {
+  return (
+    <Card style={{ gap: 12, alignItems: "flex-start" }}>
+      <Text style={[type.secondary, { fontSize: 14.5 }]}>{message}</Text>
+      {onRetry ? <Pill title="Try again" size="sm" kind="secondary" icon="arrow.clockwise" busy={busy} onPress={onRetry} /> : null}
+    </Card>
+  );
+}
+
+/**
+ * A small pill under the navigation bar while wali can't reach the server, so a spinner or a
+ * message that says "Sending…" has an explanation. Touches pass through it.
+ */
+export function ConnectionPill() {
+  const status = useConnectionStatus();
+  const insets = useSafeAreaInsets();
+  if (status === "ok") return null;
+  return (
+    <View pointerEvents="none" style={[styles.connection, { top: insets.top + 50 }]} accessibilityLiveRegion="polite">
+      <View style={styles.connectionPill}>
+        {status === "reconnecting" ? <ActivityIndicator size="small" color="#FFFFFF" style={{ transform: [{ scale: 0.7 }] }} /> : <Icon name="wifi.slash" size={13} tint="#FFFFFF" />}
+        <Text style={styles.connectionText}>{status === "reconnecting" ? "Reconnecting…" : "You're offline"}</Text>
+      </View>
+    </View>
+  );
+}
+
 export const styles = StyleSheet.create({
+  connection: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 10 },
+  connectionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 30,
+    paddingLeft: 9,
+    paddingRight: 13,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(22,21,19,0.88)",
+  },
+  connectionText: { fontFamily: font.medium, fontSize: 12.5, color: "#FFFFFF" },
   pill: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: radius.pill, borderCurve: "continuous" },
   onPhoto: { borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.28)" },
   pillText: { fontFamily: font.medium, letterSpacing: -0.1 },

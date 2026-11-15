@@ -19,7 +19,7 @@ The rule: if iOS has the control, use it. Brand-specific surfaces are custom.
 
 | Native (system) | Custom (wali brand) |
 |---|---|
-| Tab bar (`NativeTabs`, Liquid Glass on iOS 26+, minimizes on scroll) | Chat thread, message bubbles, nudge and approval cards |
+| Tab bar (`NativeTabs`, Liquid Glass on iOS 26+) | Chat thread, message bubbles, nudge and approval cards |
 | Stack headers, back buttons, swipe-back, large titles (set in Fraunces) | Composer (native text view inside a `GlassView` capsule) |
 | Header toolbar buttons and menus (`Stack.Toolbar`) | Welcome screen (photo, wordmark, display type) |
 | Search bars (`Stack.SearchBar`) on Chats, Transcripts, Memory | Pill buttons, cards, the pendant hero |
@@ -193,6 +193,28 @@ BLE notify (172 B frame)                         src/lib/ble.ts
   started while the app is backgrounded (discretionary), which held audio for up to 100 min.
 - **MTU**: on connect the app reads the max write length (ATT MTU - 3) and shows an error if
   MTU < 175 (a frame wouldn't fit one notification).
+
+## Connection handling (Nov 15 fixes)
+
+The Convex client only hears about network changes through the browser's `window "online"` event,
+which React Native doesn't have. After a Wi-Fi/cellular switch or a spell in the background it kept
+waiting on a dead socket for up to 60 s, then sat out a reconnect backoff: chats and transcripts
+spun, sent messages vanished, "New chat" did nothing, and actions failed with "Connection lost
+while action was in flight".
+
+- `src/lib/connection.ts` reconnects on NetInfo changes and on foregrounding, restarts a socket
+  that's stalled (a mutation in flight for 10 s, or a screen waiting 8 s on a query), shortens the
+  dead-socket timer to 30 s, and publishes `ok` / `reconnecting` / `offline`. It uses the client's
+  WebSocket manager, which isn't public API; every access is guarded.
+- `ConnectionPill` (under the navigation bar) and `Loading` (a spinner that says why it's still
+  there) show that state. Use `Loading` wherever a screen waits on the server.
+- `messages.send` is optimistic: the bubble appears at once with "Sending…", and the text goes
+  back in the field if the send fails.
+- Errors shown to people go through `friendlyError` (`src/lib/errors.ts`): no `[CONVEX A(...)]`,
+  no "Called by client". Loads that fail show `LoadError` in the page with a retry, not an alert
+  (an alert could arrive minutes later over a different screen).
+- `useReadAction` retries read-only actions and gives up with a timeout; `useTimedAction` puts a
+  deadline on actions that change things.
 
 ## Layout
 
