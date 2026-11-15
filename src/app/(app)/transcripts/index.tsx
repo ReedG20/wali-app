@@ -10,7 +10,7 @@ import { useStoreSelector } from "../../../lib/store";
 import { useLocalSegments } from "../../../lib/useLocalSegments";
 import { largeTitle } from "../../../navigation";
 import { color, display, font, type } from "../../../theme";
-import { Card, Icon, Lede, Spinner } from "../../../ui";
+import { Card, Icon, Lede, Loading, Spinner } from "../../../ui";
 
 const LOCAL_LABEL: Record<string, string> = {
   recording: "Saving on this phone",
@@ -38,6 +38,15 @@ function dayLabel(ms: number) {
 
 const clock = clockTime;
 
+/**
+ * "1 voice" / "2 voices". Transcription sometimes splits a word or two off as a second speaker,
+ * which made a 2-second clip claim two voices; a speaker needs a second of speech to count.
+ */
+function voices(speakers: { seconds: number }[]) {
+  const n = Math.max(1, speakers.filter((sp) => sp.seconds >= 1).length);
+  return `${n} ${n === 1 ? "voice" : "voices"}`;
+}
+
 /** What the pendant heard: each finished conversation, grouped by day, plus anything still on the phone. */
 export default function Transcripts() {
   const recordings = useQuery(api.recordings.list, { limit: 80 });
@@ -48,7 +57,8 @@ export default function Transcripts() {
 
   const sections = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = (recordings ?? []).filter((r) => !q || (r.preview ?? "").toLowerCase().includes(q));
+    // Clips with no words in them ("Silent") aren't conversations: they only cluttered the list.
+    const list = (recordings ?? []).filter((r) => r.status !== "empty").filter((r) => !q || (r.preview ?? "").toLowerCase().includes(q));
     const groups = new Map<string, Recording[]>();
     for (const r of list) {
       const k = dayLabel(r.startedAt);
@@ -102,9 +112,7 @@ export default function Transcripts() {
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         ListEmptyComponent={
           recordings === undefined ? (
-            <View style={{ paddingTop: 30 }}>
-              <Spinner />
-            </View>
+            <Loading fill={false} />
           ) : (
             <Card>
               <Text style={[type.secondary, { fontSize: 14.5 }]}>
@@ -117,19 +125,13 @@ export default function Transcripts() {
           <Pressable onPress={() => router.push({ pathname: "/(app)/transcripts/[id]", params: { id: r._id } })} style={({ pressed }) => pressed && { opacity: 0.85 }}>
             <View style={s.card}>
               <View style={s.meta}>
-                <Text style={[type.label, { fontSize: 14 }]}>
-                  {r.timeApprox ? "~" : ""}
-                  {clock(r.startedAt)}
-                </Text>
+                {/* Approximate start times (clips synced later) are marked on the detail page, not with a "~" here. */}
+                <Text style={[type.label, { fontSize: 14 }]}>{clock(r.startedAt)}</Text>
                 <Text style={type.meta}>· {duration(r.durationMs)}</Text>
                 {r.status !== "done" ? <Text style={type.meta}>· {STATUS_LABEL[r.status] ?? r.status}</Text> : null}
                 {r.status === "pending" || r.status === "transcribing" ? <Spinner /> : null}
                 <View style={{ flex: 1 }} />
-                {r.speakers?.length ? (
-                  <Text style={type.meta}>
-                    {r.speakers.length} {r.speakers.length === 1 ? "voice" : "voices"}
-                  </Text>
-                ) : null}
+                {r.speakers?.length ? <Text style={type.meta}>{voices(r.speakers)}</Text> : null}
               </View>
               {r.preview || r.error ? (
                 <Text style={[type.bodySm, { marginTop: 6, color: r.status === "failed" ? color.ink2 : color.ink }]} numberOfLines={3}>

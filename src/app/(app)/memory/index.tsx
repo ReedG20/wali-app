@@ -1,13 +1,14 @@
-import { useAction, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { api } from "../../../lib/convex-api";
-import { ago, formatDate, timeLabel } from "../../../lib/time";
-import { useReadAction } from "../../../lib/useReadAction";
+import { friendlyError } from "../../../lib/errors";
+import { ago, dayLabel, formatDate, splitDatePrefix, timeLabel } from "../../../lib/time";
+import { useReadAction, useTimedAction } from "../../../lib/useReadAction";
 import { largeTitle } from "../../../navigation";
 import { color, type } from "../../../theme";
-import { Card, Empty, Lede, Page, SectionHead, Skeleton, Spinner } from "../../../ui";
+import { Card, Empty, Lede, LoadError, Loading, Page, SectionHead, Skeleton } from "../../../ui";
 
 type Overview = {
   enabled: boolean;
@@ -19,11 +20,11 @@ type Overview = {
 type Hit = { text: string; similarity: number; date: string | null; kind: string | null };
 type Note = { _id: string; text: string; createdAt: number };
 
-/** What wali knows: the Supermemory profile, recent context, search, and the notes wali saved. */
+/** What wali knows: lasting facts, recent context, search, and the notes wali saved. */
 export default function Memory() {
   const loadOverview = useReadAction(api.agentNode.memoryOverview);
   const searchMemory = useReadAction(api.agentNode.memorySearch);
-  const syncNow = useAction(api.agentNode.syncMemoryNow);
+  const syncNow = useTimedAction(api.agentNode.syncMemoryNow);
   const notes = useQuery(api.activity.notes) as Note[] | undefined;
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -31,13 +32,27 @@ export default function Memory() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const searchSeq = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
+  // Errors stay on this page. An alert here used to pop up over whatever screen you'd moved on to.
   const refresh = useCallback(async () => {
     try {
-      setOverview((await loadOverview({})) as Overview);
+      const next = (await loadOverview({})) as Overview;
+      if (!alive.current) return;
+      setOverview(next);
+      setLoadError(null);
     } catch (e) {
-      Alert.alert("Couldn't load memory", e instanceof Error ? e.message.split("\n")[0] : "Try again.");
+      if (alive.current) setLoadError(friendlyError(e, "Memory didn't load. Try again."));
     }
   }, [loadOverview]);
 
@@ -49,11 +64,14 @@ export default function Memory() {
     if (!q.trim()) return setHits(null);
     const seq = ++searchSeq.current;
     setSearching(true);
+    setSearchError(null);
     try {
       const res = (await searchMemory({ query: q })) as Hit[];
-      if (seq === searchSeq.current) setHits(res);
+      if (seq === searchSeq.current && alive.current) setHits(res);
+    } catch (e) {
+      if (seq === searchSeq.current && alive.current) setSearchError(friendlyError(e, "The search didn't go through. Try again."));
     } finally {
-      if (seq === searchSeq.current) setSearching(false);
+      if (seq === searchSeq.current && alive.current) setSearching(false);
     }
   }
 
@@ -90,9 +108,9 @@ export default function Memory() {
         {showingSearch ? (
           <View style={{ gap: 10, paddingTop: 8 }}>
             {searching ? (
-              <View style={{ paddingTop: 20 }}>
-                <Spinner />
-              </View>
+              <Loading fill={false} />
+            ) : searchError ? (
+              <LoadError message={searchError} onRetry={() => void search(query)} />
             ) : hits === null ? (
               <Text style={type.meta}>Search the same memory wali reads. Tap Search on the keyboard.</Text>
             ) : hits.length === 0 ? (
@@ -101,12 +119,11 @@ export default function Memory() {
               hits.map((h, i) => (
                 <Card key={i} style={{ padding: 16 }}>
                   <Text style={type.bodySm} selectable>
-                    {h.text}
+                    {splitDatePrefix(h.text).text}
                   </Text>
                   <Text style={[type.meta, { marginTop: 6, fontSize: 12 }]}>
                     {Math.round(h.similarity * 100)}% match
                     {h.date ? ` · ${formatDate(new Date(h.date), { month: "short", day: "numeric" })}` : ""}
-                    {h.kind ? ` · ${h.kind}` : ""}
                   </Text>
                 </Card>
               ))
@@ -115,12 +132,22 @@ export default function Memory() {
         ) : (
           <>
             <Lede>Every conversation the pendant hears goes into memory. wali reads it before every reply and every nudge.</Lede>
-            {overview && !overview.enabled ? (
-              <Empty>Long-term memory is off. Add SUPERMEMORY_API_KEY in Convex to turn it on.</Empty>
+            {loadError && !overview ? (
+              <LoadError
+                message={loadError}
+                busy={retrying}
+                onRetry={async () => {
+                  setRetrying(true);
+                  await refresh();
+                  if (alive.current) setRetrying(false);
+                }}
+              />
+            ) : overview && !overview.enabled ? (
+              <Empty>Long-term memory isn&apos;t turned on for this account yet.</Empty>
             ) : (
               <>
                 <SectionHead title="About you" description="Lasting facts, learned from your conversations." />
-                <FactList items={p?.static} loading={!overview} empty="Nothing yet. Memory is still reading your conversations; check back in a minute." />
+                <FactList items={p?.static} loading={!overview} empty="Nothing lasting yet. These build up over days of conversations, so the first ones can take a while to appear." />
                 <SectionHead title="Lately" description="Recent context. Older items fade on their own." />
                 <FactList items={p?.dynamic} loading={!overview} empty="No recent context yet." />
               </>
@@ -135,7 +162,9 @@ export default function Memory() {
               <Card padded={false}>
                 {notes.map((n, i) => (
                   <View key={n._id} style={[s.item, i > 0 && s.line]}>
-                    <Text style={type.bodySm}>{n.text}</Text>
+                    <Text style={type.bodySm} selectable>
+                      {splitDatePrefix(n.text).text}
+                    </Text>
                     <Text style={[type.meta, { marginTop: 2, fontSize: 12.5 }]}>{timeLabel(n.createdAt)}</Text>
                   </View>
                 ))}
@@ -150,13 +179,16 @@ export default function Memory() {
                 <Text
                   style={{ color: color.ink2, textDecorationLine: "underline" }}
                   onPress={async () => {
-                    await syncNow({});
-                    Alert.alert("Syncing", "Your pendant history is going into memory.");
+                    try {
+                      await syncNow({});
+                      Alert.alert("Syncing", "Your pendant history is going into memory.");
+                    } catch (e) {
+                      Alert.alert("Couldn't start the sync", friendlyError(e, "Try again."));
+                    }
                   }}
                 >
                   Sync again
                 </Text>
-                {overview.error ? ` · ${overview.error}` : ""}
               </Text>
             ) : null}
           </>
@@ -178,11 +210,18 @@ function FactList({ items, loading, empty }: { items?: string[]; loading: boolea
   if (!items?.length) return <Empty>{empty}</Empty>;
   return (
     <Card padded={false}>
-      {items.map((m, i) => (
-        <Text key={i} style={[type.bodySm, s.item, i > 0 && s.line]} selectable>
-          {m}
-        </Text>
-      ))}
+      {items.map((m, i) => {
+        // "[2026-11-15] They plan…" -> the sentence, with the day underneath instead of raw brackets.
+        const { text, date } = splitDatePrefix(m);
+        return (
+          <View key={i} style={[s.item, i > 0 && s.line]}>
+            <Text style={type.bodySm} selectable>
+              {text}
+            </Text>
+            {date ? <Text style={[type.meta, { marginTop: 2, fontSize: 12.5 }]}>{dayLabel(date)}</Text> : null}
+          </View>
+        );
+      })}
     </Card>
   );
 }
