@@ -1,18 +1,24 @@
 import { useMutation, useQuery } from "convex/react";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { Stack, useLocalSearchParams } from "expo-router";
+import type { GenericId as Id } from "convex/values";
+import * as Haptics from "expo-haptics";
 import { useMemo } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, type Utterance } from "../../../lib/convex";
+import { api as backend } from "../../../lib/convex-api";
 import { friendlyError } from "../../../lib/errors";
 import { wavFile } from "../../../lib/files";
 import { clockTime, duration, formatDate } from "../../../lib/time";
+import { longestLine, namedMessage, pickerTitle, quote, scopeHint, type KnownPerson, type NameScope } from "../../../lib/voices";
 import { color, display, font, type } from "../../../theme";
 import { Card, Icon, Loading, Page, Pill } from "../../../ui";
+import { pickPerson } from "../../../ui/pickPerson";
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-type Turn = { key: string; speakerLabel: string; startAt: number; text: string };
+type Turn = { key: string; speakerRaw: string; speakerLabel: string; startAt: number; text: string };
+type SpeakerInfo = { label: string; named: boolean; hasVoice: boolean; personId: string | null };
 
 /**
  * One block per turn. Transcription returns a speaker's speech in several pieces, which read as
@@ -25,8 +31,9 @@ function turns(utts: Utterance[]): Turn[] {
   let lastEnd = 0;
   for (const u of utts) {
     const prev = out[out.length - 1];
-    if (prev && prev.speakerLabel === u.speakerLabel && u.startAt - lastEnd < SAME_TURN_GAP_MS) prev.text = `${prev.text} ${u.text}`.trim();
-    else out.push({ key: u._id, speakerLabel: u.speakerLabel, startAt: u.startAt, text: u.text });
+    if (prev && prev.speakerRaw === u.speakerRaw && prev.speakerLabel === u.speakerLabel && u.startAt - lastEnd < SAME_TURN_GAP_MS)
+      prev.text = `${prev.text} ${u.text}`.trim();
+    else out.push({ key: u._id, speakerRaw: u.speakerRaw, speakerLabel: u.speakerLabel, startAt: u.startAt, text: u.text });
     lastEnd = u.endAt;
   }
   return out;
@@ -37,6 +44,8 @@ export default function RecordingScreen() {
   const rec = useQuery(api.recordings.get, { id });
   const utts = useQuery(api.utterances.forRecording, { recordingId: id });
   const retry = useMutation(api.recordings.retry);
+  const people = (useQuery(backend.voices.people) ?? []) as KnownPerson[];
+  const nameSpeaker = useMutation(backend.voices.nameSpeaker);
 
   // Prefer the local WAV (clientId = local segment id), fall back to the server copy.
   const source = useMemo(() => {
@@ -50,7 +59,13 @@ export default function RecordingScreen() {
   const blocks = useMemo(() => (utts ? turns(utts) : undefined), [utts]);
   // The recording's own speaker list keeps the neutral "Speaker 1" even after a voice has been
   // recognised, while the lines below use the name. Use the name in both places.
-  const names = useMemo(() => new Map((utts ?? []).map((u) => [u.speakerRaw, u.speakerLabel])), [utts]);
+  const speakers = useMemo(
+    () =>
+      new Map<string, SpeakerInfo>(
+        (utts ?? []).map((u) => [u.speakerRaw, { label: u.speakerLabel, named: !!u.personId, hasVoice: !!u.voiceId, personId: u.personId ?? null }]),
+      ),
+    [utts],
+  );
 
   if (rec === undefined) return <Loading />;
   if (rec === null)
@@ -66,6 +81,28 @@ export default function RecordingScreen() {
     else {
       if (ps.didJustFinish || (ps.duration > 0 && ps.currentTime >= ps.duration - 0.05)) await player.seekTo(0);
       player.play();
+    }
+  }
+
+  /** "Who's Speaker 2?": pick who it is, and the transcript (and the list) relabel live. */
+  async function nameWho(speakerRaw: string) {
+    const sp = speakers.get(speakerRaw);
+    if (!rec || !sp || !rec.speakers?.some((x) => x.speakerRaw === speakerRaw)) return;
+    const said = longestLine(utts ?? [], speakerRaw);
+    const picked = await pickPerson({
+      title: pickerTitle(sp.label, sp.named),
+      message: `${said ? `${quote(said)}\n\n` : ""}${scopeHint(sp.hasVoice)}`,
+      people,
+      currentPersonId: sp.personId,
+      cancelLabel: sp.named ? "Cancel" : "Leave unnamed",
+    });
+    if (!picked || !("target" in picked)) return;
+    try {
+      const res = (await nameSpeaker({ recordingId: rec._id as Id<"recordings">, speakerRaw, ...picked.target })) as { scope: NameScope };
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      AccessibilityInfo.announceForAccessibility(namedMessage(res.scope));
+    } catch (e) {
+      Alert.alert("Couldn't save that name", friendlyError(e, "Try again."));
     }
   }
 
@@ -129,8 +166,18 @@ export default function RecordingScreen() {
           <View style={{ marginTop: 26, gap: 10 }}>
             {rec.speakers.filter((sp) => sp.seconds >= 1 || rec.speakers!.length === 1).map((sp) => (
               <View key={sp.speakerRaw}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={[type.label, { fontSize: 14 }]}>{names.get(sp.speakerRaw) ?? sp.label}</Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Pressable
+                    onPress={() => void nameWho(sp.speakerRaw)}
+                    disabled={!speakers.has(sp.speakerRaw)}
+                    accessibilityRole="button"
+                    accessibilityHint="Choose who this is"
+                    hitSlop={8}
+                    style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 5 }, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={[type.label, { fontSize: 14 }]}>{speakers.get(sp.speakerRaw)?.label ?? sp.label}</Text>
+                    {speakers.has(sp.speakerRaw) ? <Icon name="chevron.up.chevron.down" size={10} tint={color.ink3} /> : null}
+                  </Pressable>
                   <Text style={type.meta}>{duration(sp.seconds * 1000)}</Text>
                 </View>
                 <View style={[s.track, { marginTop: 5 }]}>
@@ -146,10 +193,18 @@ export default function RecordingScreen() {
           {blocks?.length === 0 && (rec.status === "done" || rec.status === "empty") ? <Text style={type.secondary}>No words in this one.</Text> : null}
           {blocks?.map((u) => (
             <View key={u.key}>
-              <Text style={s.speaker}>
-                {u.speakerLabel}
-                <Text style={{ color: color.ink3 }}>  {fmt((u.startAt - rec.startedAt) / 1000)}</Text>
-              </Text>
+              <Pressable
+                onPress={() => void nameWho(u.speakerRaw)}
+                accessibilityRole="button"
+                accessibilityHint="Choose who this is"
+                hitSlop={6}
+                style={({ pressed }) => [{ alignSelf: "flex-start" }, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={s.speaker}>
+                  {u.speakerLabel}
+                  <Text style={{ color: color.ink3 }}>  {fmt((u.startAt - rec.startedAt) / 1000)}</Text>
+                </Text>
+              </Pressable>
               <Text style={[type.body, { marginTop: 3 }]} selectable>
                 {u.text}
               </Text>
