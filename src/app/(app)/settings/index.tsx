@@ -163,6 +163,7 @@ export default function PendantTab() {
           <Row first icon="bubble.left.and.exclamationmark.bubble.right" title="When wali speaks up" subtitle="Nudges, quiet hours, limits" onPress={() => router.push("/(app)/settings/proactive")} />
           <Row icon="hand.raised" title="What wali can do" subtitle={PERMISSION_LABEL[me?.permissions ?? "balanced"]} onPress={() => router.push("/(app)/settings/permissions")} />
           <Row icon="bell.badge" title="Notifications" subtitle="Nudges, approvals, updates" onPress={() => router.push("/(app)/settings/notifications")} />
+          <Row icon="person.2.wave.2" title="Voices" subtitle="Name the people wali hears" onPress={() => router.push("/(app)/settings/voices")} />
           <Row icon="square.grid.2x2" title="Connections" subtitle="Gmail, Calendar, Slack and more" onPress={() => router.push("/(app)/settings/connections")} />
           <Row icon="waveform.path.ecg" title="Activity" subtitle="When wali spoke up, and when it didn't" onPress={() => router.push("/(app)/settings/activity")} />
           <Row icon="text.bubble" title="Try it without the pendant" subtitle="Run a conversation through wali" onPress={() => router.push("/(app)/settings/try")} />

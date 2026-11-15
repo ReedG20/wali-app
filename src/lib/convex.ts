@@ -61,6 +61,10 @@ export type Utterance = {
   speakerRaw: string;
   speakerLabel: string;
   text: string;
+  /** Set once voice identification matched this speaker to a voice. */
+  voiceId?: string;
+  /** Set when the label is a person's name (recognized voice or named by hand). */
+  personId?: string;
 };
 
 type Q<Args extends DefaultFunctionArgs, Ret> = FunctionReference<"query", "public", Args, Ret>;
