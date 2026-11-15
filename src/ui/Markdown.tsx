@@ -2,7 +2,7 @@
 // code blocks, and inline bold / italic / code / links. Tolerates half-streamed input.
 import * as WebBrowser from "expo-web-browser";
 import { Fragment, memo, type ReactNode } from "react";
-import { Linking, Text, View, type TextStyle } from "react-native";
+import { Text, View, type TextStyle } from "react-native";
 import { color, font } from "../theme";
 
 type Block =
@@ -63,10 +63,14 @@ function shortUrl(url: string) {
   return bare.length > 38 ? `${bare.slice(0, 36)}…` : bare;
 }
 
+/**
+ * Only web links are tappable, and they open in the in-app browser. This text comes from the
+ * model and from web pages a browser task read, so a link must never be able to place a call,
+ * write a text or open another app (tel:, sms:, mailto:, wali://, any custom scheme).
+ */
+const isWebLink = (url: string) => /^https?:\/\//i.test(url);
 function openLink(url: string) {
-  // Only web links open in the in-app browser; anything else (mailto:, wali://) goes to the system.
-  if (/^https?:\/\//i.test(url)) void WebBrowser.openBrowserAsync(url).catch(() => {});
-  else void Linking.openURL(url).catch(() => {});
+  if (isWebLink(url)) void WebBrowser.openBrowserAsync(url).catch(() => {});
 }
 
 function inline(text: string, base: TextStyle): ReactNode[] {
@@ -76,12 +80,15 @@ function inline(text: string, base: TextStyle): ReactNode[] {
     if (/^(\*\*|__)/.test(p) && p.length > 4) return <Text key={i} style={{ fontFamily: font.semibold }}>{inline(p.slice(2, -2), base)}</Text>;
     if (/^`/.test(p)) return <Text key={i} style={{ fontFamily: "Menlo", fontSize: (base.fontSize ?? 16) * 0.86, backgroundColor: color.tint }}>{p.slice(1, -1)}</Text>;
     const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(p);
-    if (link)
+    if (link) {
+      // Not a web link: show the words as plain text, with no link behaviour.
+      if (!isWebLink(link[2])) return <Fragment key={i}>{link[1]}</Fragment>;
       return (
         <Text key={i} style={linkStyle} onPress={() => openLink(link[2])}>
           {link[1]}
         </Text>
       );
+    }
     if (/^https?:\/\//.test(p)) {
       // Sentence punctuation right after a URL isn't part of it.
       // "(see https://x.com)." -> the ")" and "." close the sentence; "…/wiki/A_(b)" keeps its ")".
