@@ -30,6 +30,8 @@ function detail(tool: ToolPart) {
     return res?.status === "awaiting_approval" ? `${slug} · waiting for your OK` : slug;
   }
   if (tool.toolName === "search_memory") return args?.query ? `“${String(args.query)}”` : "";
+  // The backend skips a note that repeats a recent one word for word.
+  if (tool.toolName === "save_note" && res?.saved === false) return "already saved";
   if (tool.toolName === "schedule_followup") return res?.scheduledFor ? `for ${String(res.scheduledFor)}` : "";
   if (tool.toolName === "browser_task" && res?.status === "awaiting_approval") return "waiting for your OK";
   return "";
