@@ -1,0 +1,121 @@
+{
+  "expo": {
+    "name": "wali",
+    "slug": "mind",
+    "scheme": [
+      "wali",
+      "mind"
+    ],
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "icon": "./assets/brand/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.reedgrenager.mind",
+      "supportsTablet": false,
+      "icon": {
+        "light": "./assets/brand/icon.png",
+        "dark": "./assets/brand/icon-dark.png",
+        "tinted": "./assets/brand/icon-tinted.png"
+      },
+      "infoPlist": {
+        "CFBundleDisplayName": "wali",
+        "NSBluetoothAlwaysUsageDescription": "wali connects to your pendant over Bluetooth to receive audio.",
+        "UIBackgroundModes": [
+          "bluetooth-central"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "runtimeVersion": {
+        "policy": "fingerprint"
+      }
+    },
+    "android": {
+      "package": "com.reedgrenager.mind",
+      "adaptiveIcon": {
+        "backgroundColor": "#161513",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
+    },
+    "plugins": [
+      "./plugins/withBackgroundLaunch",
+      "expo-router",
+      "expo-sqlite",
+      "expo-asset",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      [
+        "react-native-ble-manager",
+        {
+          "bluetoothAlwaysPermission": "wali connects to your pendant over Bluetooth to receive audio."
+        }
+      ],
+      [
+        "@clerk/expo",
+        {
+          "appleSignIn": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/WaliDisplay.ttf",
+            "./assets/fonts/WaliDisplay-Italic.ttf",
+            "./assets/fonts/WaliText-Regular.ttf",
+            "./assets/fonts/WaliText-Medium.ttf",
+            "./assets/fonts/WaliText-SemiBold.ttf"
+          ]
+        }
+      ],
+      "expo-image",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/brand/splash-wordmark.png",
+          "imageWidth": 120,
+          "backgroundColor": "#F6F4EF"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#161513",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8ada0b28-4196-45d7-9dc8-5b364a70b919"
+      }
+    },
+    "owner": "reedgrenager",
+    "updates": {
+      "url": "https://u.expo.dev/8ada0b28-4196-45d7-9dc8-5b364a70b919"
+    }
+  }
+}

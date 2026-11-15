@@ -1,0 +1,189 @@
+import { useAction, useQuery } from "convex/react";
+import { Image } from "expo-image";
+import { router, Stack } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, AppState, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { errorText } from "../../../chat/Cards";
+import { api } from "../../../lib/convex-api";
+import { PERMISSION_LABEL, type PermissionMode } from "../../../lib/permissions";
+import { color, type } from "../../../theme";
+import { Card, Empty, Icon, Lede, Page, Pill, Row, SectionHead, Spinner } from "../../../ui";
+import { useReadAction } from "../../../lib/useReadAction";
+
+type Toolkit = { slug: string; name: string; logo: string | null; connected: boolean; status: string | null };
+type State = {
+  status: { model: boolean; composio: boolean; browserUse: boolean };
+  toolkits: Toolkit[];
+  error: string | null;
+  browserProfile: boolean;
+};
+
+const BLURB: Record<string, string> = {
+  gmail: "Read, draft and send email.",
+  googlecalendar: "See your day, find free time, hold time for you.",
+  slack: "Catch up on threads and draft replies.",
+  notion: "Find and add to your notes and docs.",
+  todoist: "Turn promises into tasks.",
+  github: "Issues and pull requests.",
+};
+
+const CALLBACK = "wali://connections";
+
+/** What wali can reach. OAuth runs in the system sign-in sheet and comes straight back here. */
+export default function Connections() {
+  const load = useReadAction(api.agentNode.connections);
+  const me = useQuery(api.users.me) as { permissions?: PermissionMode } | null | undefined;
+  const connectApp = useAction(api.agentNode.connectApp);
+  const disconnectApp = useAction(api.agentNode.disconnectApp);
+  const startSignIn = useAction(api.agentNode.startBrowserSignIn);
+  const stopSignIn = useAction(api.agentNode.stopBrowserSignIn);
+  const [state, setState] = useState<State | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setState((await load({})) as State);
+    } catch (e) {
+      Alert.alert("Couldn't load connections", errorText(e, "Try again."));
+    }
+  }, [load]);
+
+  useEffect(() => {
+    void refresh();
+    const sub = AppState.addEventListener("change", (s) => s === "active" && void refresh());
+    return () => sub.remove();
+  }, [refresh]);
+
+  async function toggle(t: Toolkit) {
+    setBusy(t.slug);
+    try {
+      if (t.connected) {
+        await disconnectApp({ toolkit: t.slug });
+      } else {
+        const res = (await connectApp({ toolkit: t.slug, callbackUrl: CALLBACK })) as { redirectUrl: string | null };
+        if (res.redirectUrl) await WebBrowser.openAuthSessionAsync(res.redirectUrl, CALLBACK);
+      }
+      await refresh();
+    } catch (e) {
+      Alert.alert(t.connected ? "Couldn't disconnect" : "Couldn't start the connection", errorText(e, "Try again."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function signInBrowser() {
+    setBusy("browser");
+    try {
+      const b = (await startSignIn({})) as { browserId: string; liveUrl: string | null };
+      if (!b.liveUrl) throw new Error("The browser didn't start.");
+      await WebBrowser.openBrowserAsync(b.liveUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET });
+      await stopSignIn({ browserId: b.browserId }).catch(() => {});
+      Alert.alert("Saved", "wali's browser stays signed in.");
+      await refresh();
+    } catch (e) {
+      Alert.alert("Couldn't start a browser", errorText(e, "Try again."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const s = state?.status;
+
+  return (
+    <>
+      <Stack.Screen options={{ title: "Connections", headerLargeTitle: true }} />
+      <Page
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await refresh();
+              setRefreshing(false);
+            }}
+          />
+        }
+      >
+        <Lede>wali works in the apps you connect. You choose how often it checks with you first.</Lede>
+        <Card padded={false} style={{ marginBottom: 18 }}>
+          <Row
+            first
+            icon="hand.raised"
+            title="What wali can do"
+            subtitle={PERMISSION_LABEL[me?.permissions ?? "balanced"]}
+            onPress={() => router.push("/(app)/settings/permissions")}
+          />
+        </Card>
+
+        {!state ? (
+          <View style={{ paddingTop: 30 }}>
+            <Spinner />
+          </View>
+        ) : !s?.composio ? (
+          <Empty>Add a Composio key in Convex to connect Gmail, Calendar, Slack and more.</Empty>
+        ) : state.error ? (
+          <Empty>Composio returned an error: {state.error}</Empty>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {state.toolkits.map((t) => (
+              <Card key={t.slug} style={st.app}>
+                <View style={st.logo}>
+                  {t.logo ? <Image source={{ uri: t.logo }} style={{ width: 24, height: 24 }} contentFit="contain" /> : <Text style={type.label}>{t.name[0]}</Text>}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                    <Text style={type.label}>{t.name}</Text>
+                    {t.connected ? <Icon name="checkmark.circle.fill" size={14} tint={color.ink2} /> : null}
+                  </View>
+                  <Text style={[type.meta, { marginTop: 1 }]} numberOfLines={2}>
+                    {BLURB[t.slug] ?? t.slug}
+                  </Text>
+                </View>
+                <Pill title={t.connected ? "Disconnect" : "Connect"} size="sm" kind={t.connected ? "secondary" : "primary"} busy={busy === t.slug} onPress={() => toggle(t)} />
+              </Card>
+            ))}
+          </View>
+        )}
+
+        <SectionHead title="wali's browser" description="For sites without an API, wali uses a cloud browser that keeps your sign-ins. Sign in to the sites you want it to use, once." />
+        <Card style={st.app}>
+          <View style={st.logo}>
+            <Icon name="globe" size={20} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={type.label}>Signed-in browser</Text>
+            <Text style={type.meta}>{state?.browserProfile ? "Profile created" : "Created the first time you use it"}</Text>
+          </View>
+          <Pill title="Sign in" size="sm" busy={busy === "browser"} disabled={!s?.browserUse} onPress={signInBrowser} />
+        </Card>
+
+        <SectionHead title="Services" />
+        <Card padded={false}>
+          {(
+            [
+              ["Model (OpenRouter)", s?.model],
+              ["Apps (Composio)", s?.composio],
+              ["Browser (Browser Use)", s?.browserUse],
+            ] as const
+          ).map(([label, ok], i) => (
+            <View key={label} style={[st.svc, i > 0 && st.line]}>
+              <View style={[st.dot, { backgroundColor: ok ? color.ink : "rgba(154,149,139,0.4)" }]} />
+              <Text style={[type.bodySm, { flex: 1 }]}>{label}</Text>
+              <Text style={type.meta}>{ok === undefined ? "Checking…" : ok ? "Ready" : "Not set up"}</Text>
+            </View>
+          ))}
+        </Card>
+      </Page>
+    </>
+  );
+}
+
+const st = StyleSheet.create({
+  app: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14 },
+  logo: { width: 44, height: 44, borderRadius: 14, borderCurve: "continuous", backgroundColor: color.paper, alignItems: "center", justifyContent: "center" },
+  svc: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 13 },
+  line: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.line },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+});

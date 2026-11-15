@@ -1,0 +1,51 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://dapper-retriever-913.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dXByaWdodC1vc3RyaWNoLTU4NjMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+      },
+      "channel": "development"
+    },
+    "development-simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true
+      },
+      "channel": "development-simulator"
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://posh-orca-594.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dXByaWdodC1vc3RyaWNoLTU4NjMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+      },
+      "channel": "preview"
+    },
+    "preview-dev": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://dapper-retriever-913.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dXByaWdodC1vc3RyaWNoLTU4NjMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+      },
+      "channel": "preview-dev"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://posh-orca-594.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dXByaWdodC1vc3RyaWNoLTU4NjMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+      },
+      "channel": "production"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
