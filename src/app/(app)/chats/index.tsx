@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "convex/react";
 import { Link, Stack } from "expo-router";
 import { useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { ago } from "../../../lib/time";
 import type { Thread } from "../../../lib/types";
@@ -10,6 +9,7 @@ import { useNewChat } from "../../../lib/useNewChat";
 import { largeTitle } from "../../../navigation";
 import { color, font, type } from "../../../theme";
 import { Card, Icon, Lede, Loading, Pill } from "../../../ui";
+import { friendlyError } from "../../../lib/errors";
 
 /** Every conversation you started with wali. Long-press for a native preview and menu. */
 export default function Chats() {
@@ -28,7 +28,7 @@ export default function Chats() {
       {
         text: "Delete",
         style: "destructive",
-        onPress: () => void remove({ id: t._id }).catch((e) => Alert.alert("Couldn't delete that chat", errorText(e, "Try again."))),
+        onPress: () => void remove({ id: t._id }).catch((e) => Alert.alert("Couldn't delete that chat", friendlyError(e, "Try again."))),
       },
     ]);
   }
@@ -37,7 +37,7 @@ export default function Chats() {
     Alert.prompt(
       "Rename chat",
       undefined,
-      (title) => title?.trim() && void rename({ id: t._id, title: title.trim() }).catch((e) => Alert.alert("Couldn't rename", errorText(e, "Try again."))),
+      (title) => title?.trim() && void rename({ id: t._id, title: title.trim() }).catch((e) => Alert.alert("Couldn't rename", friendlyError(e, "Try again."))),
       "plain-text",
       t.title,
     );

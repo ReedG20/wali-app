@@ -3,7 +3,6 @@ import type { GenericId as Id } from "convex/values";
 import { router, Stack } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { friendlyError } from "../../../lib/errors";
 import { timeLabel } from "../../../lib/time";
@@ -80,7 +79,7 @@ export default function Activity() {
                   onPress={() =>
                     Alert.alert("Cancel this follow-up?", f.note, [
                       { text: "Keep", style: "cancel" },
-                      { text: "Cancel it", style: "destructive", onPress: () => void cancel({ id: f._id }).catch((e) => Alert.alert("Couldn't cancel", errorText(e, "Try again."))) },
+                      { text: "Cancel it", style: "destructive", onPress: () => void cancel({ id: f._id }).catch((e) => Alert.alert("Couldn't cancel", friendlyError(e, "Try again."))) },
                     ])
                   }
                 />

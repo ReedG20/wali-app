@@ -64,7 +64,7 @@ export default function PendantTab() {
     try {
       await setMuted(!st.muted);
     } catch (e) {
-      Alert.alert(st.muted ? "Couldn't unmute" : "Couldn't mute", errorMessage(e));
+      Alert.alert(st.muted ? "Couldn't unmute" : "Couldn't mute", friendlyError(e, "Try again."));
     } finally {
       setMuteBusy(false);
     }
@@ -149,7 +149,7 @@ export default function PendantTab() {
                 trackColor={{ true: color.ink }}
                 onValueChange={(on) =>
                   void (on ? linkAccount({ name: pendantName(ble.deviceName) }) : device ? unlinkAccount({ id: device._id as never }) : Promise.resolve()).catch((e) =>
-                    Alert.alert("Couldn't change that", errorMessage(e)),
+                    Alert.alert("Couldn't change that", friendlyError(e, "Try again.")),
                   )
                 }
               />
@@ -183,17 +183,3 @@ const s = StyleSheet.create({
   heroShade: { experimental_backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 35%, rgba(0,0,0,0.65) 100%)" },
   heroMeta: { fontFamily: font.medium, fontSize: 13.5, color: "rgba(255,255,255,0.8)" },
 });
-
-/** BLE errors arrive as plain objects ({ message, code }), not Errors. */
-function errorMessage(e: unknown) {
-  if (e instanceof Error) return friendlyError(e, "Try again.");
-  if (e && typeof e === "object") {
-    const o = e as { message?: unknown; reason?: unknown; code?: unknown };
-    const m = o.message ?? o.reason;
-    if (typeof m === "string" && m) return m;
-    try {
-      return JSON.stringify(e);
-    } catch {}
-  }
-  return String(e);
-}

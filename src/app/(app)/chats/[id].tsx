@@ -3,11 +3,11 @@ import type { GenericId as Id } from "convex/values";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
 import { ChatView } from "../../../chat/ChatView";
-import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import type { Thread } from "../../../lib/types";
 import { noEdgeEffects } from "../../../navigation";
 import { color, type } from "../../../theme";
+import { friendlyError } from "../../../lib/errors";
 
 export default function ThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,7 +38,7 @@ export default function ThreadScreen() {
                 Alert.prompt(
                   "Rename chat",
                   undefined,
-                  (t) => t?.trim() && void rename({ id: threadId, title: t.trim() }).catch((e) => Alert.alert("Couldn't rename", errorText(e, "Try again."))),
+                  (t) => t?.trim() && void rename({ id: threadId, title: t.trim() }).catch((e) => Alert.alert("Couldn't rename", friendlyError(e, "Try again."))),
                   "plain-text",
                   thread.title,
                 )
@@ -57,7 +57,7 @@ export default function ThreadScreen() {
                     style: "destructive",
                     onPress: () => {
                       router.back();
-                      remove({ id: threadId }).catch((e) => Alert.alert("Couldn't delete that chat", errorText(e, "Try again.")));
+                      remove({ id: threadId }).catch((e) => Alert.alert("Couldn't delete that chat", friendlyError(e, "Try again.")));
                     },
                   },
                 ])

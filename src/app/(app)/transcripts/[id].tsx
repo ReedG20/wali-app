@@ -109,7 +109,9 @@ export default function RecordingScreen() {
         {rec.status === "failed" || rec.status === "transcribing" || rec.status === "pending" ? (
           <Card style={{ marginTop: 12, gap: 12 }}>
             <Text style={[type.secondary, { fontSize: 14.5 }]}>
-              {rec.status === "failed" ? "This one couldn't be transcribed." : "Still transcribing. This updates on its own."}
+              {rec.status === "failed"
+                ? `This one couldn't be transcribed${rec.error ? `: ${friendlyError(rec.error, "unknown reason")}` : "."}`
+                : "Still transcribing. This updates on its own."}
             </Text>
             {rec.status !== "pending" ? (
               <Pill

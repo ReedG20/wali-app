@@ -2,7 +2,7 @@ import { useAction } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useCallback } from "react";
 import { reconnectNow } from "./connection";
-import { isConnectionLost, isTimeout, withTimeout } from "./errors";
+import { isConnectionLost, withTimeout } from "./errors";
 
 export { isConnectionLost } from "./errors";
 
@@ -10,11 +10,15 @@ export { isConnectionLost } from "./errors";
  * Convex never retries an action whose WebSocket dropped mid-call ("Connection lost while action
  * was in flight"): an action may have side effects. That happens whenever iOS suspends wali or the
  * network changes, and it surfaced as a "Couldn't load memory" alert. For actions that only READ,
- * retrying is safe, so this wraps useAction with a few retries for that one error, and gives up
- * with a TimeoutError instead of spinning forever when nothing comes back at all.
+ * running it again is safe, so this wraps useAction with a few retries for that one error.
+ *
+ * It does NOT retry when this phone merely gave up waiting: the first call is still running on
+ * the server then, and a retry would stack a second and third copy of a slow load. A deadline
+ * ends in a TimeoutError the screen shows with a "Try again" button instead.
+ *
  * Don't use it for actions that change things (connect an app, sync, send).
  */
-const ATTEMPT_TIMEOUT_MS = 15_000;
+const DEADLINE_MS = 30_000;
 const MAX_ATTEMPTS = 3;
 
 export function useReadAction<F extends FunctionReference<"action">>(ref: F) {
@@ -23,10 +27,9 @@ export function useReadAction<F extends FunctionReference<"action">>(ref: F) {
     async (...args: Parameters<typeof run>): Promise<Awaited<ReturnType<typeof run>>> => {
       for (let attempt = 0; ; attempt++) {
         try {
-          return await withTimeout(run(...args), ATTEMPT_TIMEOUT_MS);
+          return await withTimeout(run(...args), DEADLINE_MS);
         } catch (e) {
-          const retryable = isConnectionLost(e) || isTimeout(e);
-          if (attempt >= MAX_ATTEMPTS - 1 || !retryable) throw e;
+          if (attempt >= MAX_ATTEMPTS - 1 || !isConnectionLost(e)) throw e;
           reconnectNow();
           await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
         }

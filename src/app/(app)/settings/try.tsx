@@ -2,10 +2,10 @@ import { useAction } from "convex/react";
 import { router, Stack } from "expo-router";
 import { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
-import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { color, font, type } from "../../../theme";
 import { Card, Lede, Page, Pill } from "../../../ui";
+import { friendlyError } from "../../../lib/errors";
 
 const SAMPLE = `Speaker 1: I keep saying I'll call my mom back and then it's Friday again.
 Speaker 2: You should just do it tonight after dinner.
@@ -30,7 +30,7 @@ export default function TryIt() {
         { text: "OK", style: "cancel" },
       ]);
     } catch (e) {
-      Alert.alert("That didn't run", errorText(e, "Try again."));
+      Alert.alert("That didn't run", friendlyError(e, "Try again."));
     } finally {
       setRunning(null);
     }

@@ -144,6 +144,18 @@ export default function Memory() {
               />
             ) : overview && !overview.enabled ? (
               <Empty>Long-term memory isn&apos;t turned on for this account yet.</Empty>
+            ) : overview && !overview.profile && overview.error ? (
+              // The profile couldn't be fetched: say so, rather than showing empty lists as if
+              // wali knew nothing.
+              <LoadError
+                message={`Memory couldn't be read just now: ${friendlyError(overview.error, "unknown problem")}`}
+                busy={retrying}
+                onRetry={async () => {
+                  setRetrying(true);
+                  await refresh();
+                  if (alive.current) setRetrying(false);
+                }}
+              />
             ) : (
               <>
                 <SectionHead title="About you" description="Lasting facts, learned from your conversations." />
