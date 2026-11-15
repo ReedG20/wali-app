@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { api, type Recording } from "../../../lib/convex";
 import { clockTime, duration, formatDate } from "../../../lib/time";
+import { closeOpen, recorderStore } from "../../../lib/recorder";
+import { IDLE_CLOSE_MS } from "../../../lib/segment";
+import { useStoreSelector } from "../../../lib/store";
 import { useLocalSegments } from "../../../lib/useLocalSegments";
 import { largeTitle } from "../../../navigation";
 import { color, display, font, type } from "../../../theme";
@@ -40,6 +43,7 @@ export default function Transcripts() {
   const recordings = useQuery(api.recordings.list, { limit: 80 });
   const { rows } = useLocalSegments(50);
   const pending = rows.filter((r) => r.state !== "uploaded");
+  const openId = useStoreSelector(recorderStore, (st) => st.openSegmentId);
   const [query, setQuery] = useState("");
 
   const sections = useMemo(() => {
@@ -70,22 +74,26 @@ export default function Transcripts() {
             <Lede>Each finished conversation, as transcribed. Speakers are numbered per conversation.</Lede>
             {pending.length > 0 ? (
               <Card padded={false} style={{ marginBottom: 8 }}>
-                {pending.map((r, i) => (
-                  <View key={r.id} style={[s.localRow, i > 0 && s.line]}>
-                    <Icon
-                      name={r.state === "broken" ? "exclamationmark.triangle" : r.state === "uploading" ? "icloud.and.arrow.up" : "iphone"}
-                      size={16}
-                      tint={r.state === "broken" ? "#8A3B12" : color.ink2}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={type.label}>{LOCAL_LABEL[r.state] ?? r.state}</Text>
-                      <Text style={type.meta} numberOfLines={2}>
-                        {clock(r.startedAt ?? r.firstFrameAt)} · {duration(r.durationMs ?? (r.seqEnd - r.seqStart + 1) * 20)}
-                        {r.lastError ? ` · ${r.lastError}` : ""}
-                      </Text>
+                {pending.map((r, i) =>
+                  r.id === openId ? (
+                    <LiveRow key={r.id} startedAt={r.startedAt ?? r.firstFrameAt} first={i === 0} />
+                  ) : (
+                    <View key={r.id} style={[s.localRow, i > 0 && s.line]}>
+                      <Icon
+                        name={r.state === "broken" ? "exclamationmark.triangle" : r.state === "uploading" ? "icloud.and.arrow.up" : "iphone"}
+                        size={16}
+                        tint={r.state === "broken" ? "#8A3B12" : color.ink2}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={type.label}>{LOCAL_LABEL[r.state] ?? r.state}</Text>
+                        <Text style={type.meta} numberOfLines={2}>
+                          {clock(r.startedAt ?? r.firstFrameAt)} · {duration(r.durationMs ?? (r.seqEnd - r.seqStart + 1) * 20)}
+                          {r.lastError ? ` · ${r.lastError}` : ""}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  ),
+                )}
               </Card>
             ) : null}
           </>
@@ -133,6 +141,29 @@ export default function Transcripts() {
         )}
       />
     </>
+  );
+}
+
+/**
+ * The conversation the pendant is hearing right now. It becomes a transcript once it ends (after
+ * IDLE_CLOSE_MS of quiet, or 5 min), so without this row nothing visible happens while you talk.
+ * Its own component: the frame count changes several times a second while audio streams.
+ */
+function LiveRow({ startedAt, first }: { startedAt: number; first: boolean }) {
+  const frames = useStoreSelector(recorderStore, (st) => st.openSegmentFrames);
+  return (
+    <View style={[s.localRow, !first && s.line]}>
+      <Icon name="waveform" size={16} tint={color.ink} />
+      <View style={{ flex: 1 }}>
+        <Text style={type.label}>Listening now</Text>
+        <Text style={type.meta} numberOfLines={2}>
+          {clock(startedAt)} · {duration(frames * 20)} so far · transcribed after {Math.round(IDLE_CLOSE_MS / 1000)} s of quiet
+        </Text>
+      </View>
+      <Pressable onPress={() => closeOpen()} hitSlop={8} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+        <Text style={[type.label, { fontSize: 14 }]}>Transcribe now</Text>
+      </Pressable>
+    </View>
   );
 }
 
