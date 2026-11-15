@@ -4,10 +4,12 @@ import { useState, type ReactNode } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { WaliMark } from "../brand";
 import { api } from "../lib/convex-api";
+import { friendlyError } from "../lib/errors";
 import { timeLabel } from "../lib/time";
 import type { Message } from "../lib/types";
 import { color, font, type } from "../theme";
 import { Card, Icon, Pill, Spinner } from "../ui";
+import { Markdown } from "../ui/Markdown";
 
 const TRIGGER_LABEL: Record<string, string> = {
   transcript: "After a conversation",
@@ -17,8 +19,9 @@ const TRIGGER_LABEL: Record<string, string> = {
   simulated: "Simulated",
 };
 
+/** One plain sentence for an alert. Never the raw "[CONVEX A(...)] ... Called by client" text. */
 export function errorText(e: unknown, fallback: string) {
-  return e instanceof Error ? e.message.replace(/^.*Uncaught Error: /, "").split("\n")[0] : fallback;
+  return friendlyError(e, fallback);
 }
 
 function CardShell({ header, time, children }: { header: ReactNode; time: number; children: ReactNode }) {
@@ -65,9 +68,9 @@ export function NudgeCard({ m }: { m: Message }) {
         </>
       }
     >
-      <Text style={s.body} selectable>
-        {m.text}
-      </Text>
+      <View style={{ marginTop: 10 }}>
+        <Markdown text={m.text} size={15.5} />
+      </View>
       <View style={s.actions}>
         {chosen ? (
           // Sent: a quiet confirmation (no onPress), or a spinner while it's on its way.
@@ -101,11 +104,24 @@ export function NudgeCard({ m }: { m: Message }) {
   );
 }
 
-/** GOOGLECALENDAR_CREATE_EVENT -> "Googlecalendar: create event" */
+const APP_NAME: Record<string, string> = {
+  gmail: "Gmail",
+  googlecalendar: "Google Calendar",
+  googledrive: "Google Drive",
+  googledocs: "Google Docs",
+  googlesheets: "Google Sheets",
+  slack: "Slack",
+  notion: "Notion",
+  todoist: "Todoist",
+  github: "GitHub",
+};
+
+/** GOOGLECALENDAR_CREATE_EVENT -> "Google Calendar: create event" */
 function humanSlug(slug?: string) {
   if (!slug) return "";
   const [app, ...rest] = slug.toLowerCase().split("_");
-  return `${app[0].toUpperCase()}${app.slice(1)}: ${rest.join(" ")}`;
+  const name = APP_NAME[app] ?? `${app[0].toUpperCase()}${app.slice(1)}`;
+  return rest.length ? `${name}: ${rest.join(" ")}` : name;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -148,7 +164,9 @@ export function ApprovalCard({ m }: { m: Message }) {
         </>
       }
     >
-      <Text style={s.body}>{a.summary}</Text>
+      <View style={{ marginTop: 10 }}>
+        <Markdown text={a.summary} size={15.5} />
+      </View>
       {args ? (
         <>
           <Pressable onPress={() => setOpen((o) => !o)} style={s.detailsToggle} hitSlop={8}>
@@ -175,7 +193,7 @@ export function ApprovalCard({ m }: { m: Message }) {
             {a.status === "approved" || a.status === "running" ? <Spinner /> : null}
             <Text style={[type.secondary, { fontSize: 13.5 }]}>
               {STATUS_TEXT[a.status] ?? a.status}
-              {a.error ? <Text style={{ color: color.ink3 }}> · {a.error}</Text> : null}
+              {a.error ? <Text style={{ color: color.ink3 }}> · {friendlyError(a.error, "It didn't go through.")}</Text> : null}
             </Text>
           </View>
         )}
@@ -184,19 +202,44 @@ export function ApprovalCard({ m }: { m: Message }) {
   );
 }
 
+/**
+ * When a browser task starts, the update message carries the full brief wali wrote for the
+ * browser ("Go to… Log in with the user's existing account session… If login requires a password
+ * or Duo/MFA, stop and report that."). That's an instruction to a machine, not something to read:
+ * show one line, and keep the brief behind a toggle.
+ */
+const BROWSER_BRIEF = /^(Working on it in the browser)\s*[:.]\s*([\s\S]+)$/i;
+
 /** Background work reporting back (browser tasks, approved actions). */
 export function UpdateRow({ m }: { m: Message }) {
+  const [open, setOpen] = useState(false);
   const t = m.browserTask;
   const running = t && (t.status === "starting" || t.status === "running");
+  const brief = BROWSER_BRIEF.exec(m.text.trim());
   return (
     <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
       <View style={s.updateIcon}>{running ? <Spinner /> : <Icon name="globe" size={13} />}</View>
-      <View style={{ flex: 1 }}>
-        <Text style={[type.secondary, { fontSize: 14.5 }]} selectable>
-          {m.text}
-        </Text>
-        {t && !running && t.status !== "completed" && t.error ? <Text style={[type.meta, { marginTop: 2 }]}>{t.error}</Text> : null}
-        <Text style={[type.meta, { fontSize: 12, marginTop: 2 }]}>{timeLabel(m.createdAt)}</Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {brief ? (
+          <>
+            <Text style={[type.secondary, { fontSize: 14.5 }]}>{running ? "Working on it in the browser…" : "Worked on it in the browser."}</Text>
+            <Pressable onPress={() => setOpen((o) => !o)} style={s.detailsToggle} hitSlop={8}>
+              <Text style={[type.meta, { fontSize: 12.5 }]}>What wali asked the browser to do</Text>
+              <Icon name={open ? "chevron.up" : "chevron.down"} size={10} tint={color.ink3} />
+            </Pressable>
+            {open ? (
+              <View style={s.code}>
+                <Text style={[type.meta, { fontSize: 13, lineHeight: 19, color: color.ink2 }]} selectable>
+                  {brief[2].trim()}
+                </Text>
+              </View>
+            ) : null}
+          </>
+        ) : (
+          <Markdown text={m.text} size={14.5} tint={color.ink2} />
+        )}
+        {t && !running && t.status !== "completed" && t.error ? <Text style={[type.meta, { marginTop: 2 }]}>{friendlyError(t.error, "The browser task didn't finish.")}</Text> : null}
+        <Text style={[type.meta, { fontSize: 12, marginTop: 4 }]}>{timeLabel(m.createdAt)}</Text>
       </View>
     </View>
   );
@@ -205,7 +248,6 @@ export function UpdateRow({ m }: { m: Message }) {
 const s = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   headText: { flex: 1, fontFamily: font.body, fontSize: 12.5, color: color.ink2 },
-  body: { fontFamily: font.body, fontSize: 15.5, lineHeight: 23, color: color.ink, marginTop: 10 },
   actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 14 },
   thumb: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   detailsToggle: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8, alignSelf: "flex-start" },

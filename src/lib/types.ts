@@ -44,6 +44,8 @@ export type Message = {
   createdAt: number
   approval: Approval | null
   browserTask: BrowserTask | null
+  /** Client only: shown optimistically while messages.send is still on its way. */
+  pending?: boolean
 }
 
 export type Thread = {

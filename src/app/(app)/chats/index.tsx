@@ -2,13 +2,14 @@ import { useMutation, useQuery } from "convex/react";
 import { Link, Stack } from "expo-router";
 import { useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import { ago } from "../../../lib/time";
 import type { Thread } from "../../../lib/types";
 import { useNewChat } from "../../../lib/useNewChat";
 import { largeTitle } from "../../../navigation";
 import { color, font, type } from "../../../theme";
-import { Card, Icon, Lede, Pill, Spinner } from "../../../ui";
+import { Card, Icon, Lede, Loading, Pill } from "../../../ui";
 
 /** Every conversation you started with wali. Long-press for a native preview and menu. */
 export default function Chats() {
@@ -24,12 +25,22 @@ export default function Chats() {
   function confirmDelete(t: Thread) {
     Alert.alert("Delete this chat?", `“${t.title}” and its messages will be removed.`, [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => void remove({ id: t._id }) },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => void remove({ id: t._id }).catch((e) => Alert.alert("Couldn't delete that chat", errorText(e, "Try again."))),
+      },
     ]);
   }
 
   function promptRename(t: Thread) {
-    Alert.prompt("Rename chat", undefined, (title) => title?.trim() && void rename({ id: t._id, title: title.trim() }), "plain-text", t.title);
+    Alert.prompt(
+      "Rename chat",
+      undefined,
+      (title) => title?.trim() && void rename({ id: t._id, title: title.trim() }).catch((e) => Alert.alert("Couldn't rename", errorText(e, "Try again."))),
+      "plain-text",
+      t.title,
+    );
   }
 
   return (
@@ -49,9 +60,7 @@ export default function Chats() {
         ListHeaderComponent={<Lede>Ask anything about your day, or hand wali something to do.</Lede>}
         ListEmptyComponent={
           threads === undefined ? (
-            <View style={{ paddingTop: 30 }}>
-              <Spinner />
-            </View>
+            <Loading fill={false} />
           ) : (
             <Card style={{ alignItems: "flex-start", gap: 14 }}>
               <Text style={[type.secondary, { fontSize: 14.5 }]}>
@@ -68,7 +77,7 @@ export default function Chats() {
               <Pressable>
                 <View style={s.row}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={s.title} numberOfLines={1}>
+                  <Text style={s.title} numberOfLines={2}>
                     {t.title}
                   </Text>
                   {t.preview ? (

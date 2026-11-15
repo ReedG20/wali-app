@@ -17,7 +17,8 @@ export function Composer({
   placeholder = "Talk to wali…",
   autoFocus,
 }: {
-  onSend: (text: string) => Promise<void> | void;
+  /** Resolve false if the message didn't go: the text is put back so it isn't lost. */
+  onSend: (text: string) => Promise<boolean | void> | boolean | void;
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -25,12 +26,14 @@ export function Composer({
   const [value, setValue] = useState("");
   const canSend = value.trim().length > 0 && !disabled;
 
-  function submit() {
+  async function submit() {
     if (!canSend) return;
     const text = value.trim();
     setValue("");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    void onSend(text);
+    const sent = await onSend(text);
+    // Only if the field is still empty: don't clobber something typed in the meantime.
+    if (sent === false) setValue((current) => current || text);
   }
 
   const body = (

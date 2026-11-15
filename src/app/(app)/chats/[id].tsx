@@ -3,9 +3,11 @@ import type { GenericId as Id } from "convex/values";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
 import { ChatView } from "../../../chat/ChatView";
+import { errorText } from "../../../chat/Cards";
 import { api } from "../../../lib/convex-api";
 import type { Thread } from "../../../lib/types";
-import { type } from "../../../theme";
+import { noEdgeEffects } from "../../../navigation";
+import { color, type } from "../../../theme";
 
 export default function ThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,21 +18,30 @@ export default function ThreadScreen() {
 
   if (thread === null)
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <Text style={type.secondary}>This chat doesn&apos;t exist.</Text>
-      </View>
+      <>
+        <Stack.Screen options={{ title: "Chat", headerLargeTitle: false }} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: color.paper }}>
+          <Text style={type.secondary}>This chat doesn&apos;t exist anymore.</Text>
+        </View>
+      </>
     );
 
   return (
     <>
-      <Stack.Screen options={{ title: thread?.title ?? "", headerLargeTitle: false }} />
+      <Stack.Screen options={{ ...noEdgeEffects, title: thread?.title ?? "Chat", headerLargeTitle: false }} />
       {thread?.kind === "chat" ? (
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.Menu icon="ellipsis">
             <Stack.Toolbar.MenuAction
               icon="pencil"
               onPress={() =>
-                Alert.prompt("Rename chat", undefined, (t) => t?.trim() && void rename({ id: threadId, title: t.trim() }), "plain-text", thread.title)
+                Alert.prompt(
+                  "Rename chat",
+                  undefined,
+                  (t) => t?.trim() && void rename({ id: threadId, title: t.trim() }).catch((e) => Alert.alert("Couldn't rename", errorText(e, "Try again."))),
+                  "plain-text",
+                  thread.title,
+                )
               }
             >
               Rename
@@ -44,9 +55,9 @@ export default function ThreadScreen() {
                   {
                     text: "Delete",
                     style: "destructive",
-                    onPress: async () => {
+                    onPress: () => {
                       router.back();
-                      await remove({ id: threadId });
+                      remove({ id: threadId }).catch((e) => Alert.alert("Couldn't delete that chat", errorText(e, "Try again.")));
                     },
                   },
                 ])

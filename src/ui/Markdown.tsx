@@ -2,7 +2,7 @@
 // code blocks, and inline bold / italic / code / links. Tolerates half-streamed input.
 import * as WebBrowser from "expo-web-browser";
 import { Fragment, memo, type ReactNode } from "react";
-import { Text, View, type TextStyle } from "react-native";
+import { Linking, Text, View, type TextStyle } from "react-native";
 import { color, font } from "../theme";
 
 type Block =
@@ -52,7 +52,22 @@ function parseBlocks(src: string): Block[] {
   return out;
 }
 
-const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
+// Bare URLs come before the emphasis patterns so underscores inside a link aren't read as italics.
+const INLINE = /(\[[^\]]+\]\([^)\s]+\)|https?:\/\/[^\s<>\[\]]+|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|(?<![A-Za-z0-9])_[^_\s][^_]*_(?![A-Za-z0-9]))/g;
+
+const linkStyle: TextStyle = { textDecorationLine: "underline", textDecorationColor: "rgba(22,21,19,0.3)" };
+
+/** "https://mail.google.com/mail/u/0/#inbox/FMfcgz…" -> "mail.google.com/mail/u/0…": long raw URLs wrapped mid-word. */
+function shortUrl(url: string) {
+  const bare = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  return bare.length > 38 ? `${bare.slice(0, 36)}…` : bare;
+}
+
+function openLink(url: string) {
+  // Only web links open in the in-app browser; anything else (mailto:, wali://) goes to the system.
+  if (/^https?:\/\//i.test(url)) void WebBrowser.openBrowserAsync(url).catch(() => {});
+  else void Linking.openURL(url).catch(() => {});
+}
 
 function inline(text: string, base: TextStyle): ReactNode[] {
   const parts = text.split(INLINE);
@@ -63,17 +78,37 @@ function inline(text: string, base: TextStyle): ReactNode[] {
     const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(p);
     if (link)
       return (
-        <Text key={i} style={{ textDecorationLine: "underline", textDecorationColor: "rgba(22,21,19,0.3)" }} onPress={() => void WebBrowser.openBrowserAsync(link[2])}>
+        <Text key={i} style={linkStyle} onPress={() => openLink(link[2])}>
           {link[1]}
         </Text>
       );
+    if (/^https?:\/\//.test(p)) {
+      // Sentence punctuation right after a URL isn't part of it.
+      // "(see https://x.com)." -> the ")" and "." close the sentence; "…/wiki/A_(b)" keeps its ")".
+      let url = p;
+      for (;;) {
+        const last = url[url.length - 1];
+        const closesNothing = last === ")" && url.split(")").length > url.split("(").length;
+        if (!/[.,;:!?'"]/.test(last) && !closesNothing) break;
+        url = url.slice(0, -1);
+      }
+      const trail = p.slice(url.length);
+      return (
+        <Fragment key={i}>
+          <Text style={linkStyle} onPress={() => openLink(url)}>
+            {shortUrl(url)}
+          </Text>
+          {trail}
+        </Fragment>
+      );
+    }
     if (/^[*_]/.test(p) && p.length > 2) return <Text key={i} style={{ fontStyle: "italic" }}>{p.slice(1, -1)}</Text>;
     return <Fragment key={i}>{p.replace(/\*\*$/, "")}</Fragment>;
   });
 }
 
-export const Markdown = memo(function Markdown({ text, size = 16 }: { text: string; size?: number }) {
-  const base: TextStyle = { fontFamily: font.body, fontSize: size, lineHeight: Math.round(size * 1.58), color: color.ink };
+export const Markdown = memo(function Markdown({ text, size = 16, tint = color.ink }: { text: string; size?: number; tint?: string }) {
+  const base: TextStyle = { fontFamily: font.body, fontSize: size, lineHeight: Math.round(size * 1.58), color: tint };
   const blocks = parseBlocks(text);
   return (
     <View style={{ gap: 10 }}>
